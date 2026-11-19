@@ -737,9 +737,14 @@ void SleepActivity::onEnter() {
     GUI.drawPopup(renderer, tr(STR_ENTERING_SLEEP));
   }
 
-  // Every mode below replaces the whole screen. One clean straight to the new
-  // image leaves the old screen visible, so clean to white first (BLANK is that clean).
-  if (SETTINGS.sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::BLANK) {
+  // Simple monochrome sleep screens can transition directly from the reader
+  // in their final refresh. A separate white clean adds another full panel
+  // waveform before the sleep image appears. Keep that clean for image modes,
+  // whose grayscale renderers rely on a known white baseline.
+  if (sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::DARK &&
+      sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::LIGHT &&
+      sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::BLANK &&
+      sleepScreen != CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM) {
     renderer.clearScreen();
     renderer.displayBuffer(kSleepClean);
   }
@@ -823,9 +828,8 @@ void SleepActivity::renderCustomSleepScreen() const {
   renderDefaultSleepScreen();
 }
 
-// Sleep screens paint with kSleepClean (after the white clean in onEnter): HALF, not
-// the multi-flash GC waveform (0xF7) that FULL_REFRESH selects (#2471's blinking
-// complaint), except on Metalio.
+// Sleep screens paint with kSleepClean: HALF, not the multi-flash GC waveform
+// (0xF7) that FULL_REFRESH selects (#2471's blinking complaint), except on Metalio.
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -854,11 +858,19 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
 
   LOG_DBG("SLP", "bitmap %d x %d, screen %d x %d", bitmap.getWidth(), bitmap.getHeight(), pageWidth, pageHeight);
   LOG_DBG("SLP", "drawing to %d x %d", x, y);
-  if (!preserveBackground) renderer.clearScreen();
 
   const bool hasGreyscale = (bitmap.hasGreyscale() || (preserveBackground && overlayGrayCover)) &&
                             (preserveBackground || SETTINGS.sleepScreenCoverFilter ==
                                                        CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
+  if (!preserveBackground) {
+    renderer.clearScreen();
+    // Monochrome custom images can go straight to their final sleep refresh.
+    // Grayscale rendering needs the white baseline, so defer that clean until
+    // after the selected image is known instead of cleaning every custom image.
+    if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM && hasGreyscale) {
+      renderer.displayBuffer(kSleepClean);
+    }
+  }
 
   if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
     renderer.displayBuffer(kSleepClean);

@@ -299,6 +299,14 @@ class CrossPointSettings : public PersistableStore<CrossPointSettings> {
   uint8_t characterSpacing = CHARACTER_SPACING_OFFSET;
   int8_t getCharacterSpacing() const { return static_cast<int8_t>(characterSpacing - CHARACTER_SPACING_OFFSET); }
   uint8_t textAntiAliasing = 1;
+  uint8_t ruledPaper = 0;
+  // Position stores an index 0..10 mapped to -5..+5 px; 5 preserves the approved line position.
+  uint8_t ruledPaperOffset = 5;
+  uint8_t ruledPaperDarkness = 1;  // 0=25%, 1=50% (current), 2=75%, 3=100%
+  uint8_t ruledPaperInset = 0;
+  uint8_t ruledPaperDotted = 0;
+  uint8_t ruledPaperDashLength = 4;
+  uint8_t ruledPaperGap = 4;
   // Short power button click behaviour
   uint8_t shortPwrBtn = IGNORE;
   // Power double click (see hasPowerDoubleClick()); Ignore disables the

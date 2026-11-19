@@ -27,7 +27,9 @@ constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_L
 
 constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
     StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
-    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN};
+    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN, StrId::STR_RULED_PAPER,
+    StrId::STR_RULED_PAPER_POSITION,  StrId::STR_RULED_PAPER_DARKNESS, StrId::STR_RULED_PAPER_INSET,
+    StrId::STR_RULED_PAPER_DOTTED,    StrId::STR_RULED_PAPER_DASH_LENGTH, StrId::STR_RULED_PAPER_GAP};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW,
                                         StrId::STR_EMBEDDED_STYLE_NO_PREVIEW, StrId::STR_TEXT_AA_NO_PREVIEW};
 
@@ -54,6 +56,8 @@ constexpr StrId CHARACTER_SPACING_IDS[] = {StrId::STR_SPACING_MINUS_2, StrId::ST
                                            StrId::STR_SPACING_PLUS_2};
 constexpr StrId ALIGNMENT_IDS[] = {StrId::STR_JUSTIFY, StrId::STR_ALIGN_LEFT, StrId::STR_CENTER, StrId::STR_ALIGN_RIGHT,
                                    StrId::STR_BOOK_S_STYLE};
+constexpr StrId RULE_DARKNESS_IDS[] = {StrId::STR_RULE_DARKNESS_25, StrId::STR_RULE_DARKNESS_50,
+                                       StrId::STR_RULE_DARKNESS_75, StrId::STR_RULE_DARKNESS_100};
 constexpr int MARGIN_MIN = CrossPointSettings::SCREEN_MARGIN_MIN;
 constexpr int MARGIN_MAX = CrossPointSettings::SCREEN_MARGIN_MAX;
 constexpr int MARGIN_STEP = CrossPointSettings::SCREEN_MARGIN_STEP;
@@ -111,7 +115,14 @@ void TextSettingsActivity::rebuildRowItems() {
   rowValues_.assign(count, std::string());
   rowItems_.clear();
   rowItems_.reserve(count);
-  for (int i = 0; i < count; i++) {
+  const int layoutCount = static_cast<int>(LayoutRow::Count);
+  for (int i = 0; i < (tab_ == Tab::Layout ? layoutCount : count); i++) {
+    if (tab_ == Tab::Layout &&
+        ((!SETTINGS.ruledPaper && i > static_cast<int>(LayoutRow::RuledPaper)) ||
+         (SETTINGS.ruledPaper && !SETTINGS.ruledPaperDotted &&
+          i > static_cast<int>(LayoutRow::RuledPaperDotted)))) {
+      continue;
+    }
     fui::ListItem item;
     switch (tab_) {
       case Tab::Family:
@@ -228,7 +239,7 @@ void TextSettingsActivity::buildScreen(UiScreen& screen) {
         rowValues_[i] = (i == currentSizeIndex_) ? tr(STR_SELECTED) : "";
         break;
       case Tab::Layout:
-        rowValues_[i] = layoutValueText(i);
+        rowValues_[i] = layoutValueText(rowItems_[i].actionValue);
         break;
       default:
         break;
@@ -236,7 +247,7 @@ void TextSettingsActivity::buildScreen(UiScreen& screen) {
     rowItems_[i].value = rowValues_[i].empty() ? nullptr : rowValues_[i].c_str();
     if (tab_ == Tab::Style) {
       GUI.setCheckboxRow(rowItems_[i], styleRowChecked(i));
-    } else if (tab_ == Tab::Layout && i == static_cast<int>(LayoutRow::ParaSpacing)) {
+    } else if (tab_ == Tab::Layout && rowItems_[i].actionValue == static_cast<int>(LayoutRow::ParaSpacing)) {
       GUI.setCheckboxRow(rowItems_[i], SETTINGS.extraParagraphSpacing);
     }
   }
@@ -263,7 +274,11 @@ const char* TextSettingsActivity::confirmLabelText() const {
   }
   switch (tab_) {
     case Tab::Layout:
-      return ringPos() - 1 == static_cast<int>(LayoutRow::ParaSpacing) ? tr(STR_TOGGLE) : tr(STR_SELECT);
+      return ringPos() - 1 == static_cast<int>(LayoutRow::ParaSpacing) ||
+                     ringPos() - 1 == static_cast<int>(LayoutRow::RuledPaper) ||
+                     ringPos() - 1 == static_cast<int>(LayoutRow::RuledPaperDotted)
+                 ? tr(STR_TOGGLE)
+                 : tr(STR_SELECT);
     case Tab::Style:
       return tr(STR_TOGGLE);
     default:
@@ -448,6 +463,79 @@ void TextSettingsActivity::confirmLayoutRow(int row) {
       requestUpdate();
       break;
     }
+    case LayoutRow::RuledPaper:
+      SETTINGS.ruledPaper = !SETTINGS.ruledPaper;
+      SETTINGS.saveToFile();
+      rebuildRowItems();
+      requestUpdate();
+      break;
+    case LayoutRow::RuledPaperPosition: {
+      std::vector<std::string> options;
+      options.reserve(11);
+      for (int offset = -5; offset <= 5; ++offset) {
+        char value[16];
+        snprintf(value, sizeof(value), offset > 0 ? "+%d px" : "%d px", offset);
+        options.emplace_back(value);
+      }
+      const int current = std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10);
+      optionPopup_.show(StrId::STR_RULED_PAPER_POSITION, options, current, [](int idx) {
+        SETTINGS.ruledPaperOffset = static_cast<uint8_t>(idx);
+        SETTINGS.saveToFile();
+      });
+      requestUpdate();
+      break;
+    }
+    case LayoutRow::RuledPaperDarkness:
+      optionPopup_.show(StrId::STR_RULED_PAPER_DARKNESS, RULE_DARKNESS_IDS,
+                        static_cast<int>(std::size(RULE_DARKNESS_IDS)),
+                        std::min<int>(SETTINGS.ruledPaperDarkness, std::size(RULE_DARKNESS_IDS) - 1), [](int idx) {
+                          SETTINGS.ruledPaperDarkness = static_cast<uint8_t>(idx);
+                          SETTINGS.saveToFile();
+                        });
+      requestUpdate();
+      break;
+    case LayoutRow::RuledPaperInset: {
+      std::vector<std::string> options;
+      options.reserve(5);
+      for (int inset = 0; inset <= 20; inset += 5) options.push_back(std::to_string(inset) + " px");
+      const int current = std::clamp<int>(SETTINGS.ruledPaperInset, 0, 20) / 5;
+      optionPopup_.show(StrId::STR_RULED_PAPER_INSET, options, current, [](int idx) {
+        SETTINGS.ruledPaperInset = static_cast<uint8_t>(idx * 5);
+        SETTINGS.saveToFile();
+      });
+      requestUpdate();
+      break;
+    }
+    case LayoutRow::RuledPaperDotted:
+      SETTINGS.ruledPaperDotted = !SETTINGS.ruledPaperDotted;
+      SETTINGS.saveToFile();
+      rebuildRowItems();
+      requestUpdate();
+      break;
+    case LayoutRow::RuledPaperDashLength: {
+      std::vector<std::string> options;
+      options.reserve(16);
+      for (int px = 1; px <= 16; ++px) options.push_back(std::to_string(px) + " px");
+      const int current = std::clamp<int>(SETTINGS.ruledPaperDashLength, 1, 16) - 1;
+      optionPopup_.show(StrId::STR_RULED_PAPER_DASH_LENGTH, options, current, [](int idx) {
+        SETTINGS.ruledPaperDashLength = static_cast<uint8_t>(idx + 1);
+        SETTINGS.saveToFile();
+      });
+      requestUpdate();
+      break;
+    }
+    case LayoutRow::RuledPaperGap: {
+      std::vector<std::string> options;
+      options.reserve(16);
+      for (int px = 1; px <= 16; ++px) options.push_back(std::to_string(px) + " px");
+      const int current = std::clamp<int>(SETTINGS.ruledPaperGap, 1, 16) - 1;
+      optionPopup_.show(StrId::STR_RULED_PAPER_GAP, options, current, [](int idx) {
+        SETTINGS.ruledPaperGap = static_cast<uint8_t>(idx + 1);
+        SETTINGS.saveToFile();
+      });
+      requestUpdate();
+      break;
+    }
 
     default:
       break;
@@ -477,6 +565,28 @@ std::string TextSettingsActivity::layoutValueText(int row) const {
     }
     case LayoutRow::ScreenMargin:
       return std::to_string(SETTINGS.screenMargin);
+    case LayoutRow::RuledPaper:
+    case LayoutRow::RuledPaperDotted:
+      return (static_cast<LayoutRow>(row) == LayoutRow::RuledPaper ? SETTINGS.ruledPaper
+                                                                   : SETTINGS.ruledPaperDotted)
+                 ? tr(STR_STATE_ON)
+                 : tr(STR_STATE_OFF);
+    case LayoutRow::RuledPaperPosition: {
+      const int offset = std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10) - 5;
+      char value[16];
+      snprintf(value, sizeof(value), offset > 0 ? "+%d px" : "%d px", offset);
+      return value;
+    }
+    case LayoutRow::RuledPaperDarkness: {
+      const int index = std::min<int>(SETTINGS.ruledPaperDarkness, std::size(RULE_DARKNESS_IDS) - 1);
+      return I18N.get(RULE_DARKNESS_IDS[index]);
+    }
+    case LayoutRow::RuledPaperInset:
+      return std::to_string(std::min<int>(SETTINGS.ruledPaperInset, 20)) + " px";
+    case LayoutRow::RuledPaperDashLength:
+      return std::to_string(std::clamp<int>(SETTINGS.ruledPaperDashLength, 1, 16)) + " px";
+    case LayoutRow::RuledPaperGap:
+      return std::to_string(std::clamp<int>(SETTINGS.ruledPaperGap, 1, 16)) + " px";
 
     default:
       return "";
@@ -497,7 +607,6 @@ void TextSettingsActivity::confirmStyleRow(int row) {
     case StyleRow::AntiAliasing:
       SETTINGS.textAntiAliasing = !SETTINGS.textAntiAliasing;
       break;
-
     default:
       return;
   }
@@ -515,7 +624,6 @@ bool TextSettingsActivity::styleRowChecked(int row) const {
       return SETTINGS.embeddedStyle;
     case StyleRow::AntiAliasing:
       return SETTINGS.textAntiAliasing;
-
     default:
       return false;
   }
@@ -539,7 +647,9 @@ int TextSettingsActivity::listCount() const {
     case Tab::Size:
       return static_cast<int>(sizes_.size());
     case Tab::Layout:
-      return static_cast<int>(LayoutRow::Count);
+      if (!SETTINGS.ruledPaper) return static_cast<int>(LayoutRow::RuledPaper) + 1;
+      return SETTINGS.ruledPaperDotted ? static_cast<int>(LayoutRow::Count)
+                                       : static_cast<int>(LayoutRow::RuledPaperDashLength);
     case Tab::Style:
       return static_cast<int>(StyleRow::Count);
 

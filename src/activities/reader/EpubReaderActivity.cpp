@@ -2146,6 +2146,78 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const ReaderUtils::ReaderRefreshScope readerRefresh;
   const auto t0 = millis();
   const int fontId = SETTINGS.getReaderFontId();
+  const auto drawRuledPaper = [&](const int stripY0, const int stripY1) {
+    if (!SETTINGS.ruledPaper) return;
+
+    const int inset = std::min<int>(SETTINGS.ruledPaperInset, 20);
+    int x0 = orientedMarginLeft + inset;
+    int x1 = renderer.getScreenWidth() - orientedMarginRight - inset;
+    int y0 = orientedMarginTop;
+    int y1 = renderer.getScreenHeight() - orientedMarginBottom;
+    const int displayHeight = renderer.getDisplayHeight();
+    switch (renderer.getOrientation()) {
+      case GfxRenderer::Portrait:
+        x0 = std::max(x0, displayHeight - stripY1);
+        x1 = std::min(x1, displayHeight - stripY0);
+        break;
+      case GfxRenderer::PortraitInverted:
+        x0 = std::max(x0, stripY0);
+        x1 = std::min(x1, stripY1);
+        break;
+      case GfxRenderer::LandscapeClockwise:
+        y0 = std::max(y0, displayHeight - stripY1);
+        y1 = std::min(y1, displayHeight - stripY0);
+        break;
+      case GfxRenderer::LandscapeCounterClockwise:
+        y0 = std::max(y0, stripY0);
+        y1 = std::min(y1, stripY1);
+        break;
+    }
+    if (x1 <= x0) return;
+    for (const auto& element : page->elements) {
+      if (element->getTag() != TAG_PageLine) continue;
+      const auto& line = static_cast<const PageLine&>(*element);
+      const TextBlock& block = *line.getBlock();
+      // Centered EPUB headings (including chapter numbers) sit above the ruled body text.
+      if (block.getBlockStyle().alignment == CssTextAlign::Center) continue;
+      const int lineFontId = TextBlock::renderFontId(renderer, block.blockFontId(fontId), fontId);
+      const int rubyShift = block.getRubyShift(renderer.getFontAscenderSize(lineFontId));
+      const int lineHeight = renderer.getLineHeight(lineFontId, SETTINGS.getReaderLineCompression()) +
+                             block.extraAscent(renderer, fontId) + rubyShift;
+      const int y = orientedMarginTop + line.yPos + lineHeight +
+                    std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10) - 5;
+      if (y < y0 || y >= y1) continue;
+      const int darkness = std::min<int>(SETTINGS.ruledPaperDarkness, 3);
+      const auto drawSegment = [&](const int fromX, const int toX) {
+        switch (darkness) {
+          case 0:
+            for (int x = fromX; x < toX; ++x) {
+              if ((x & 3) == 0) renderer.drawPixel(x, y, true);
+            }
+            break;
+          case 1:
+            // DarkGray stays visible on odd logical rows when one pixel high.
+            renderer.fillRectDither(fromX, y, toX - fromX, 1, Color::DarkGray);
+            break;
+          case 2:
+            for (int x = fromX; x < toX; ++x) {
+              if ((x & 3) != 0) renderer.drawPixel(x, y, true);
+            }
+            break;
+          default:
+            renderer.fillRectDither(fromX, y, toX - fromX, 1, Color::Black);
+            break;
+        }
+      };
+      if (!SETTINGS.ruledPaperDotted) {
+        drawSegment(x0, x1);
+      } else {
+        const int dash = std::clamp<int>(SETTINGS.ruledPaperDashLength, 1, 16);
+        const int gap = std::clamp<int>(SETTINGS.ruledPaperGap, 1, 16);
+        for (int x = x0; x < x1; x += dash + gap) drawSegment(x, std::min(x + dash, x1));
+      }
+    }
+  };
   ImageBlock::clearRenderFailures();
 
   struct PxcSlotGuard {
@@ -2192,7 +2264,8 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   const bool combinedGrayscaleBase = tiledGrayscale && (!pageHasImages || BoardConfig::isEegoA4()) &&
                                      grayscale.base == HalDisplay::GrayscaleBase::Combined;
   const bool overlapRefresh = tiledGrayscale && grayscale.asyncBase && !pageHasImages;
-  auto renderGrayscalePass = [&]() {
+  auto renderGrayscalePass = [&](const int stripTop, const int stripBottom) {
+    drawRuledPaper(stripTop, stripBottom);
     // A4 gray planes replace the full page, including its clipping highlights.
     if (BoardConfig::isEegoA4()) drawClippingHighlights(*page, fontId, orientedMarginTop, orientedMarginLeft);
     if (absoluteImageGrayscale || needsTextGrayscale) {
@@ -2205,12 +2278,14 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
   };
 
   if (pageHasImagesNeedingDecode) {
+    drawRuledPaper(0, renderer.getDisplayHeight());
     page->renderWithImagePlaceholders(renderer, fontId, orientedMarginLeft, orientedMarginTop);
     renderStatusBar();
     renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     renderer.clearScreen();
   }
 
+  drawRuledPaper(0, renderer.getDisplayHeight());
   drawClippingHighlights(*page, fontId, orientedMarginTop, orientedMarginLeft);
   page->render(renderer, fontId, orientedMarginLeft, orientedMarginTop);
   renderStatusBar();
@@ -2265,7 +2340,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
         const int rows = (gh - y < STRIP_ROWS) ? (gh - y) : STRIP_ROWS;
         renderer.beginStripTarget(buf + static_cast<size_t>(y) * gwBytes, y, rows);
         renderer.clearScreen(absoluteImageGrayscale ? 0xFF : 0x00);
-        renderGrayscalePass();
+        renderGrayscalePass(y, y + rows);
         renderer.endStripTarget();
       }
     };
@@ -2333,7 +2408,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
           const int rows = (gh - y < STRIP_ROWS) ? (gh - y) : STRIP_ROWS;
           renderer.beginStripTarget(scratch.get(), y, rows);
           renderer.clearScreen(absoluteImageGrayscale ? 0xFF : 0x00);
-          renderGrayscalePass();
+          renderGrayscalePass(y, y + rows);
           renderer.endStripTarget();
           renderer.writeGrayscalePlaneStrip(true, scratch.get(), y, rows);
         }
@@ -2344,7 +2419,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
           const int rows = (gh - y < STRIP_ROWS) ? (gh - y) : STRIP_ROWS;
           renderer.beginStripTarget(scratch.get(), y, rows);
           renderer.clearScreen(absoluteImageGrayscale ? 0xFF : 0x00);
-          renderGrayscalePass();
+          renderGrayscalePass(y, y + rows);
           renderer.endStripTarget();
           renderer.writeGrayscalePlaneStrip(false, scratch.get(), y, rows);
         }
@@ -2379,13 +2454,13 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
 
       renderer.clearScreen(absoluteImageGrayscale ? 0xFF : 0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_LSB);
-      renderGrayscalePass();
+      renderGrayscalePass(0, renderer.getDisplayHeight());
       renderer.copyGrayscaleLsbBuffers();
       const auto tGrayLsb = millis();
 
       renderer.clearScreen(absoluteImageGrayscale ? 0xFF : 0x00);
       renderer.setRenderMode(GfxRenderer::GRAYSCALE_MSB);
-      renderGrayscalePass();
+      renderGrayscalePass(0, renderer.getDisplayHeight());
       renderer.copyGrayscaleMsbBuffers();
       const auto tGrayMsb = millis();
 

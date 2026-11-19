@@ -29,6 +29,43 @@ CssTextAlign toCssAlign(uint8_t align) {
 }
 
 // Lay the sample text out through the reader engine into layout.lines
+void drawRule(const GfxRenderer& renderer, int x0, const int x1, const int y) {
+  const int inset = std::min<int>(SETTINGS.ruledPaperInset, 20);
+  x0 += inset;
+  const int right = x1 - inset;
+  if (right <= x0) return;
+
+  const int darkness = std::min<int>(SETTINGS.ruledPaperDarkness, 3);
+  const auto drawSegment = [&](const int fromX, const int toX) {
+    switch (darkness) {
+      case 0:
+        for (int x = fromX; x < toX; ++x) {
+          if ((x & 3) == 0) renderer.drawPixel(x, y, true);
+        }
+        break;
+      case 1:
+        renderer.fillRectDither(fromX, y, toX - fromX, 1, Color::DarkGray);
+        break;
+      case 2:
+        for (int x = fromX; x < toX; ++x) {
+          if ((x & 3) != 0) renderer.drawPixel(x, y, true);
+        }
+        break;
+      default:
+        renderer.fillRectDither(fromX, y, toX - fromX, 1, Color::Black);
+        break;
+    }
+  };
+
+  if (!SETTINGS.ruledPaperDotted) {
+    drawSegment(x0, right);
+    return;
+  }
+  const int dash = std::clamp<int>(SETTINGS.ruledPaperDashLength, 1, 16);
+  const int gap = std::clamp<int>(SETTINGS.ruledPaperGap, 1, 16);
+  for (int x = x0; x < right; x += dash + gap) drawSegment(x, std::min(x + dash, right));
+}
+
 void relayout(PreviewLayout& layout, const GfxRenderer& renderer, int fontId, int textWidth) {
   layout.lines.clear();
 
@@ -83,7 +120,8 @@ void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previ
   if (lineH <= 0) return;
 
   const int textLeft = left + SETTINGS.screenMargin;
-  const int textWidth = width - 2 * SETTINGS.screenMargin;
+  const int textRight = left + width - SETTINGS.screenMargin;
+  const int textWidth = textRight - textLeft;
   if (textWidth <= 0) return;
 
   const float compression = SETTINGS.getReaderLineCompression();
@@ -123,6 +161,10 @@ void renderPreview(const GfxRenderer& renderer, PreviewLayout& layout, int previ
     for (const auto& line : layout.lines) {
       if (y + lineH > textBottomLimit) return;
       line->render(renderer, fontId, textLeft, y);
+      if (SETTINGS.ruledPaper) {
+        const int ruleY = y + lineAdvance + std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10) - 5;
+        drawRule(renderer, textLeft, textRight, ruleY);
+      }
       y += lineAdvance;
     }
     y += paragraphGap;
