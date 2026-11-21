@@ -46,12 +46,13 @@ void FrontlightScheduleActivity::activateIndex(const int index) {
 }
 
 void FrontlightScheduleActivity::openTimePicker(const Item item) {
-  uint16_t& stored = item == Start ? SETTINGS.frontlightScheduleStartMinute : SETTINGS.frontlightScheduleEndMinute;
+  const uint16_t& stored =
+      item == Start ? SETTINGS.frontlightScheduleStartMinute : SETTINGS.frontlightScheduleEndMinute;
   const int initial = stored < 24 * 60 ? stored : (item == Start ? 8 * 60 : 22 * 60);
   const StrId title = item == Start ? StrId::STR_SCHEDULE_START : StrId::STR_SCHEDULE_END;
-  if (auto activity = makeUniqueNoThrow<IntervalSelectionActivity>(
-          renderer, mappedInput, "FrontlightScheduleTime", title, initial, 0, 1439, 30, 30, StrId::STR_NONE_OPT,
-          false, StrId::STR_NONE_OPT, true)) {
+  if (auto activity = makeUniqueNoThrow<IntervalSelectionActivity>(renderer, mappedInput, "FrontlightScheduleTime",
+                                                                   title, initial, 0, 1439, 30, 30, StrId::STR_NONE_OPT,
+                                                                   false, StrId::STR_NONE_OPT, true)) {
     startActivityForResult(std::move(activity), [this, item](const ActivityResult& result) {
       if (!result.isCancelled) {
         const uint16_t value = static_cast<uint16_t>(std::get<IntervalResult>(result.data).value);
