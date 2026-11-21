@@ -259,20 +259,18 @@ void toggleFrontlight() {
   LOG_INF("LIGHT", "Frontlight toggled %s", Frontlight.isOn() ? "on" : "off");
 }
 
+static void setFrontlightScheduleOverride(const bool scheduleActive, const bool scheduledOn) {
+  frontlightScheduleManualOverride = scheduleActive;
+  SETTINGS.frontlightScheduleManualOverride = scheduleActive ? 1 : 0;
+  SETTINGS.frontlightScheduleOverrideWindow = scheduleActive ? (scheduledOn ? 1 : 0) : 2;
+}
+
 void setFrontlightManually(const bool lightOn) {
   if (!Frontlight.present()) return;
   Frontlight.setOn(lightOn);
   SETTINGS.frontlightOn = lightOn ? 1 : 0;
   bool scheduledOn = false;
-  if (getScheduledFrontlightState(scheduledOn)) {
-    SETTINGS.frontlightScheduleManualOverride = 1;
-    SETTINGS.frontlightScheduleOverrideWindow = scheduledOn ? 1 : 0;
-    frontlightScheduleManualOverride = true;
-  } else {
-    SETTINGS.frontlightScheduleManualOverride = 0;
-    SETTINGS.frontlightScheduleOverrideWindow = 2;
-    frontlightScheduleManualOverride = false;
-  }
+  setFrontlightScheduleOverride(getScheduledFrontlightState(scheduledOn), scheduledOn);
   SETTINGS.saveToFile();
 }
 
@@ -286,9 +284,19 @@ void handleSlideSwitch() {
   // Compare the position, not the change edge: transfer loops poll input and
   // clear the edge before this runs.
   const bool on = gpio.isToggleSwitchOn();
-  if (appliedAction == SETTINGS.slideSwitchAction && appliedOn == static_cast<int>(on)) return;
+  const bool actionChanged = appliedAction != SETTINGS.slideSwitchAction;
+  const bool positionInitialized = appliedOn >= 0;
+  const bool positionChanged = !positionInitialized || appliedOn != static_cast<int>(on);
+  const bool physicalPositionChanged = positionInitialized && positionChanged;
+  if (!actionChanged && !positionChanged) return;
+  const bool leavingLightSwitch = actionChanged && appliedAction == CrossPointSettings::SLIDE_SWITCH_FRONTLIGHT &&
+                                 SETTINGS.slideSwitchAction != CrossPointSettings::SLIDE_SWITCH_FRONTLIGHT;
   appliedAction = SETTINGS.slideSwitchAction;
   appliedOn = on;
+  if (leavingLightSwitch) {
+    setFrontlightScheduleOverride(false, false);
+    SETTINGS.saveToFile();
+  }
   switch (SETTINGS.slideSwitchAction) {
     case CrossPointSettings::SLIDE_SWITCH_NIGHT_MODE:
       if ((SETTINGS.screenInverted != 0) == on) return;
@@ -299,14 +307,22 @@ void handleSlideSwitch() {
       SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_ON : CrossPointSettings::TOUCH_READER_OFF;
       break;
     default: {
-      // With a schedule, the switch can turn the light on during the scheduled
-      // off window, but its off position cannot block the scheduled on time.
-      // Without a valid schedule the physical switch remains authoritative.
+      // A real switch movement overrides the light for this schedule window.
+      // At boot, the schedule remains authoritative unless the switch is on
+      // during scheduled-off hours; the next window change clears any override.
+      if (!Frontlight.present()) return;
       bool scheduledOn = false;
       const bool hasSchedule = getScheduledFrontlightState(scheduledOn);
-      const bool desiredOn = hasSchedule ? scheduledOn || on : on;
-      if (!Frontlight.present() || Frontlight.isOn() == desiredOn) return;
-      Frontlight.setOn(desiredOn);
+      if (physicalPositionChanged && hasSchedule) {
+        setFrontlightScheduleOverride(true, scheduledOn);
+      } else if (!hasSchedule && SETTINGS.frontlightScheduleManualOverride) {
+        setFrontlightScheduleOverride(false, false);
+      }
+      const bool manualOverride =
+          hasSchedule && frontlightScheduleManualOverride &&
+          SETTINGS.frontlightScheduleOverrideWindow == static_cast<uint8_t>(scheduledOn ? 1 : 0);
+      const bool desiredOn = hasSchedule ? (manualOverride ? on : scheduledOn) : on;
+      if (Frontlight.isOn() != desiredOn) Frontlight.setOn(desiredOn);
       SETTINGS.frontlightOn = desiredOn ? 1 : 0;
       break;
     }
@@ -791,9 +807,9 @@ void setup() {
   // Brightness and warmth are always restored. A normal wake starts with the
   // light off unless Restore Light on Wake is enabled; silent maintenance
   // reboots replay the live state captured at restart, so they neither go dark
-  // nor light up against the user's wake preference. A slide switch bound to
-  // the schedule drives the light unless the switch is on during a scheduled-
-  // off window, where it acts as a manual override.
+  // nor light up against the user's wake preference. On Picco, a real switch
+  // movement overrides the schedule for its current window; a cold boot follows
+  // the schedule except for an ON switch during scheduled-off hours.
   bool scheduledLightOn = false;
   int scheduleMinute = -1;
   const bool hasValidLightSchedule = getScheduledFrontlightState(scheduledLightOn, &scheduleMinute);
@@ -801,13 +817,34 @@ void setup() {
   frontlightScheduleManualOverride =
       hasValidLightSchedule && SETTINGS.frontlightScheduleManualOverride != 0 &&
       SETTINGS.frontlightScheduleOverrideWindow == static_cast<uint8_t>(scheduledLightOn ? 1 : 0);
+  // A cold start begins from the schedule, except that an ON Picco switch in
+  // scheduled-off hours is an explicit request for light in this window.
+  const bool isColdBoot = !isPersistedSleepWake && !isSilentReboot;
+  if (switchOwnsLight && hasValidLightSchedule && isColdBoot) {
+    const bool switchRequestsLight = !scheduledLightOn && gpio.isToggleSwitchOn();
+    setFrontlightScheduleOverride(switchRequestsLight, scheduledLightOn);
+    if (switchRequestsLight) {
+      SETTINGS.frontlightOn = 1;
+      SETTINGS.saveToFile();
+    }
+  }
+  // A manual-off override during a scheduled-on window is temporary: after a
+  // real sleep wake, the schedule turns the light back on. Scheduled-off
+  // manual-on state remains available for the wake reminder.
+  const bool clearScheduledOnOverrideOnWake = isPersistedSleepWake && hasValidLightSchedule && scheduledLightOn &&
+                                              frontlightScheduleManualOverride && SETTINGS.frontlightOn == 0;
+  if (clearScheduledOnOverrideOnWake) {
+    frontlightScheduleManualOverride = false;
+  }
   if (SETTINGS.frontlightScheduleManualOverride && !frontlightScheduleManualOverride) {
     SETTINGS.frontlightScheduleManualOverride = 0;
     SETTINGS.frontlightScheduleOverrideWindow = 2;
     SETTINGS.saveToFile();
   }
   const bool restoreLightOn =
-      switchOwnsLight ? (hasValidLightSchedule ? scheduledLightOn || gpio.isToggleSwitchOn() : gpio.isToggleSwitchOn())
+      switchOwnsLight ? (hasValidLightSchedule
+                             ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
+                             : gpio.isToggleSwitchOn())
       : hasValidLightSchedule ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
       : isSilentReboot        ? silentRebootLightOn
                               : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
@@ -1012,9 +1049,8 @@ void loop() {
         SETTINGS.saveToFile();
       }
       if (!frontlightScheduleWasActive || scheduleStateChanged || scheduleControlReturned) {
-        const bool manualOverride = !switchOwnsLight && frontlightScheduleManualOverride;
-        const bool desiredOn = manualOverride ? SETTINGS.frontlightOn != 0
-                                              : scheduledLightOn || (switchOwnsLight && gpio.isToggleSwitchOn());
+        const bool manualOverride = frontlightScheduleManualOverride;
+        const bool desiredOn = manualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn;
         if (Frontlight.isOn() != desiredOn) {
           Frontlight.setOn(desiredOn);
           LOG_INF("LIGHT", "Frontlight schedule applied %s", desiredOn ? "on" : "off");

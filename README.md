@@ -6,7 +6,7 @@ This is my personal build of [CrossPoint Reader](https://github.com/crosspoint-r
 
 - Ruled paper lines you can turn on and adjust while reading. Choose solid or dotted lines and change their spacing and length. The lines stay out of chapter headings.
 - A quick sleep screen that appears before the rest of the sleep work finishes.
-- A frontlight schedule that follows local time. Set when the light should turn off and when it should turn back on. The schedule turns the light on even if the Picco switch is off; you can still turn it on while it is scheduled off. On devices using a button for the light, a manual change lasts until the next schedule change. If the light is on during scheduled-off hours when the device wakes, a reminder stays on screen for five seconds.
+- A frontlight schedule that follows local time. Set when the light should turn off and when it should turn back on. On the Picco, the schedule controls the light by default. At a cold boot, an ON switch during scheduled-off hours turns it on; moving the switch during either schedule window overrides the light until the next schedule change. On devices using a button for the light, turning it on during scheduled-off hours keeps it on through sleep and shows a five-second reminder on wake. Turning it off during scheduled-on hours lasts until the next sleep wake, when the schedule turns it back on.
 
 ## Devices
 
@@ -27,4 +27,4 @@ I have tested the firmware on my own **X3/X4, X4 Pro, and Picco**. Builds for al
 
 For general setup, supported formats, buttons, and installation help, start with the [CrossPoint Reader user guide](https://github.com/crosspoint-reader/crosspoint-reader/blob/develop/USER_GUIDE.md). This fork follows CrossPoint's open-source license and keeps its original project history.
 
-I’ll add public download files after I have tested those builds on the matching devices.
+Test builds are available in the repository’s [Releases](https://github.com/ImGooseI/crosspoint-reader/releases) tab.
