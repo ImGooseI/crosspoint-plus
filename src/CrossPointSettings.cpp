@@ -87,6 +87,11 @@ void CrossPointSettings::toJson(JsonDocument& doc) const {
     }
   };
   forEachBaseSetting(visit);
+  doc["frontlightScheduleEnabled"] = frontlightScheduleEnabled;
+  doc["frontlightScheduleStartMinute"] = frontlightScheduleStartMinute;
+  doc["frontlightScheduleEndMinute"] = frontlightScheduleEndMinute;
+  doc["frontlightScheduleManualOverride"] = frontlightScheduleManualOverride;
+  doc["frontlightScheduleOverrideWindow"] = frontlightScheduleOverrideWindow;
 
   // Front button remap — managed by RemapFrontButtons sub-activity, not in SettingsList.
   doc["frontButtonBack"] = frontButtonBack;
@@ -191,6 +196,29 @@ bool CrossPointSettings::fromJson(JsonVariantConst doc) {
     }
   };
   forEachBaseSetting(visit);
+  frontlightScheduleEnabled = doc["frontlightScheduleEnabled"] | frontlightScheduleEnabled;
+  if (frontlightScheduleEnabled > 1) {
+    frontlightScheduleEnabled = 0;
+    needsResave = true;
+  }
+  auto readScheduleMinute = [&](const char* key, uint16_t& value) {
+    const uint16_t stored = doc[key] | static_cast<uint16_t>(0xffff);
+    if (stored != 0xffff && stored >= 24 * 60) {
+      value = 0xffff;
+      needsResave = true;
+    } else {
+      value = stored;
+    }
+  };
+  readScheduleMinute("frontlightScheduleStartMinute", frontlightScheduleStartMinute);
+  readScheduleMinute("frontlightScheduleEndMinute", frontlightScheduleEndMinute);
+  frontlightScheduleManualOverride = doc["frontlightScheduleManualOverride"] | 0;
+  frontlightScheduleOverrideWindow = doc["frontlightScheduleOverrideWindow"] | 2;
+  if (frontlightScheduleManualOverride > 1 || frontlightScheduleOverrideWindow > 2) {
+    frontlightScheduleManualOverride = 0;
+    frontlightScheduleOverrideWindow = 2;
+    needsResave = true;
+  }
 
   // Keep landscape swapping opt-in when loading older settings.
   if (doc["sideButtonFollowOrientation"].isNull()) {

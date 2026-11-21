@@ -641,8 +641,9 @@ bool selectRandomSleepFile(const char* firstDirPath, const char* secondDirPath, 
   selectedPath = selectedDirPath;
   selectedPath += "/";
   selectedPath += name.get();
+  // Persist the updated cycle state after the screen transition. Saving here
+  // would add SD write latency before the sleep image is refreshed.
   setLCGState(recentKind, lcgSeed, lcgState, lcgIndexesLeft - 1, lcgIndexesTotal);
-  APP_STATE.saveToFile();
   return true;
 }
 
@@ -775,8 +776,8 @@ bool SleepActivity::renderCustomSleepBmp(const std::string& path) const {
   LOG_DBG("SLP", "Loading: %s", path.c_str());
 
   const bool thresholds = useOriginalCoverThresholds(renderer);
-  const bool screenReady = source.getWidth() == renderer.getScreenWidth() &&
-                           source.getHeight() == renderer.getScreenHeight() && source.getBpp() <= 2;
+  const bool screenReady =
+      source.getWidth() == renderer.getScreenWidth() && source.getHeight() == renderer.getScreenHeight();
   if (!screenReady) {
     // Like book covers: scale and dither once into a cached screen-sized BMP, then draw it without dithering.
     const bool crop = SETTINGS.sleepScreenCoverMode == CrossPointSettings::SLEEP_SCREEN_COVER_MODE::CROP;
@@ -821,15 +822,14 @@ void SleepActivity::renderCustomSleepScreen() const {
   std::string selectedPath;
   selectRandomSleepFile("/.sleep", "/sleep", SleepRecentKind::Standard, selectedPath);
   if (!selectedPath.empty()) {
-    delay(100);
     if (renderCustomSleepBmp(selectedPath)) return;
   }
 
   renderDefaultSleepScreen();
 }
 
-// Sleep screens paint with kSleepClean: HALF, not the multi-flash GC waveform
-// (0xF7) that FULL_REFRESH selects (#2471's blinking complaint), except on Metalio.
+// Use the fast single waveform for monochrome sleep screens. Full/half clean
+// waveforms visibly flash and are unnecessary for a frame that will sleep.
 void SleepActivity::renderDefaultSleepScreen() const {
   const auto pageWidth = renderer.getScreenWidth();
   const auto pageHeight = renderer.getScreenHeight();
@@ -844,7 +844,7 @@ void SleepActivity::renderDefaultSleepScreen() const {
     renderer.invertScreen();
   }
 
-  renderer.displayBuffer(kSleepClean);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }
 
 void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool preserveBackground) const {
@@ -862,18 +862,15 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
   const bool hasGreyscale = (bitmap.hasGreyscale() || (preserveBackground && overlayGrayCover)) &&
                             (preserveBackground || SETTINGS.sleepScreenCoverFilter ==
                                                        CrossPointSettings::SLEEP_SCREEN_COVER_FILTER::NO_FILTER);
+  const bool useGreyscalePasses = hasGreyscale;
   if (!preserveBackground) {
     renderer.clearScreen();
-    // Monochrome custom images can go straight to their final sleep refresh.
-    // Grayscale rendering needs the white baseline, so defer that clean until
-    // after the selected image is known instead of cleaning every custom image.
-    if (SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::CUSTOM && hasGreyscale) {
-      renderer.displayBuffer(kSleepClean);
-    }
+    // Custom sleep art is thresholded to monochrome below, so no white clean
+    // or extra grayscale plane refresh is needed.
   }
 
   if (!renderer.drawBitmap(bitmap, x, y, pageWidth, pageHeight, cropX, cropY, preserveBackground)) {
-    renderer.displayBuffer(kSleepClean);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
   }
 
@@ -884,7 +881,7 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
 
   // Cover + Transparent: the B/W cover is the overlay's background; the overlay renderers redraw its gray planes.
   if (overlayCover == &bitmap) {
-    if (hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported()) {
+    if (useGreyscalePasses && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported()) {
       overlayGrayCover = &bitmap;
     }
     renderTransparentCustomSleepScreen();
@@ -892,10 +889,10 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
     return;
   }
 
-  const bool absolute = hasGreyscale && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
-  const BwFrameKeeper bwFrame(renderer, hasGreyscale && !absolute);
+  const bool absolute = useGreyscalePasses && renderer.grayscaleCapabilities(sleepGrayscaleMode(renderer)).supported();
+  const BwFrameKeeper bwFrame(renderer, useGreyscalePasses && !absolute);
   if (!bwFrame.ready()) {
-    renderer.displayBuffer(kSleepClean);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
     return;
   }
   if (absolute) {
@@ -905,17 +902,17 @@ void SleepActivity::renderBitmapSleepScreen(const Bitmap& bitmap, const bool pre
       cleanBeforeAbsoluteGray(renderer);
     }
     if (!renderer.displayGrayscaleBase(sleepGrayscaleMode(renderer))) return;
-  } else if (hasGreyscale) {
+  } else if (useGreyscalePasses) {
     // OEM grayscale pipeline base. Must stay HALF: the gray nudge LUT is
     // calibrated against the pixel state the single-pass HALF waveform leaves
     // behind. A FULL (GC) base parks pixels in a different charge state and
     // the differential nudge then lands unevenly (blotchy noise in gray areas).
     renderer.displayGrayscaleBase(HalDisplay::HALF_REFRESH);
   } else {
-    renderer.displayBuffer(kSleepClean);
+    renderer.displayBuffer(HalDisplay::FAST_REFRESH);
   }
 
-  if (hasGreyscale) {
+  if (useGreyscalePasses) {
     bool ready = true;
     for (const auto plane : {GfxRenderer::GRAYSCALE_LSB, GfxRenderer::GRAYSCALE_MSB}) {
       if (bitmap.rewindToData() != BmpReaderError::Ok) {
@@ -1145,5 +1142,5 @@ void SleepActivity::renderLastScreenSleepScreen() const {
 
 void SleepActivity::renderBlankSleepScreen() const {
   renderer.clearScreen();
-  renderer.displayBuffer(kSleepClean);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
 }

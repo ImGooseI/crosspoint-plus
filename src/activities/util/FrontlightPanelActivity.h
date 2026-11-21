@@ -47,6 +47,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   static void onBrightnessStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onWarmthStepEvent(const freeink::ui::ActionEvent& event, void* user);
   static void onTileEvent(const freeink::ui::ActionEvent& event, void* user);
+  static void onScheduleEvent(const freeink::ui::ActionEvent& event, void* user);
 
   void buildPanelScreen(UiScreen& screen);
   // One slider row: a caption line (name + live percentage) above
@@ -59,6 +60,7 @@ class FrontlightPanelActivity final : public Activity, private UiAppHost {
   void adjustWarmth(int delta);
   void toggleLight();
   void runTile(int idx);
+  void openSchedule();
   // Copy the panel's live brightness/warmth/lightOn into SETTINGS and save if
   // anything actually changed. onExit() runs it on every way out.
   void persistLightSettings();

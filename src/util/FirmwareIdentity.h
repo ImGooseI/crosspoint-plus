@@ -2,6 +2,7 @@
 
 // Plugin-system contract advertised to catalogs and the web UI.
 namespace firmwareidentity {
+inline constexpr const char* DISPLAY_NAME = "CrossPoint Plus";
 inline constexpr const char* FAMILY = "crosspoint";
 inline constexpr int PLUGIN_API_VERSION = 1;
 inline constexpr const char* PLUGIN_CAPABILITIES =

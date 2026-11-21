@@ -92,25 +92,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Short board-specific names keep pull-request artifacts easy to identify.
-        # The release workflow applies the published crosspoint-<version>-<device>.bin names.
+        # Board names make each test build easy to pick out and download.
         include:
           - env: default
-            asset: firmware.bin
+            asset: crosspoint-plus-x3-x4.bin
           - env: sticky
-            asset: firmware-sticky.bin
+            asset: crosspoint-plus-sticky.bin
           - env: x4pro
-            asset: firmware-x4pro.bin
+            asset: crosspoint-plus-x4-pro.bin
           - env: x4c
-            asset: firmware-x4c.bin
+            asset: crosspoint-plus-x4-classic.bin
           - env: papermono
-            asset: firmware-papermono.bin
+            asset: crosspoint-plus-paper-mono.bin
           - env: metalio_eink4
-            asset: firmware-metalio_eink4.bin
+            asset: crosspoint-plus-metalio-eink4.bin
           - env: eego_a4
-            asset: firmware-eego_a4.bin
+            asset: crosspoint-plus-eegoread-a4.bin
           - env: picco
-            asset: firmware-picco.bin
+            asset: crosspoint-plus-picco.bin
     steps:
       - uses: actions/checkout@v6
         with:
@@ -164,11 +163,14 @@ jobs:
           set -euo pipefail
           pio run -e ${{ matrix.env }} | tee pio.log
 
+      - name: Name firmware file
+        run: cp ".pio/build/${{ matrix.env }}/firmware.bin" ".pio/build/${{ matrix.env }}/${{ matrix.asset }}"
+
       - name: Upload firmware artifact
         uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.asset }}
-          path: .pio/build/${{ matrix.env }}/firmware.bin
+          path: .pio/build/${{ matrix.env }}/${{ matrix.asset }}
           if-no-files-found: error
 
       - name: Extract firmware stats

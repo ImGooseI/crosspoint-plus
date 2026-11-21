@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <utility>
 
+#include "CrossPointSettings.h"
 #include "components/UITheme.h"
 #include "components/UiSliderDialog.h"
 #include "fontIds.h"
@@ -26,7 +27,7 @@ IntervalSelectionActivity::IntervalSelectionActivity(GfxRenderer& renderer, Mapp
                                                      const int initialValue, const int minValue, const int maxValue,
                                                      const int smallStep, const int largeStep,
                                                      const StrId valueFormatId, const bool readerActivity,
-                                                     const StrId maxBoundaryLabelId)
+                                                     const StrId maxBoundaryLabelId, const bool timeOfDay)
     : Activity(activityName, renderer, mappedInput),
       UiAppHost(renderer),
       titleId(titleId),
@@ -37,10 +38,16 @@ IntervalSelectionActivity::IntervalSelectionActivity(GfxRenderer& renderer, Mapp
       maxValue(maxValue),
       smallStep(smallStep),
       largeStep(largeStep),
-      readerActivity(readerActivity) {}
+      readerActivity(readerActivity),
+      timeOfDay(timeOfDay) {}
 
 int IntervalSelectionActivity::clampedValue(const int candidate) const {
-  return std::clamp(candidate, minValue, maxValue);
+  const int clamped = std::clamp(candidate, minValue, maxValue);
+  if (!timeOfDay || smallStep <= 1) return clamped;
+  const int steps = (clamped - minValue + smallStep / 2) / smallStep;
+  const int snapped = minValue + steps * smallStep;
+  const int lastStep = maxValue - ((maxValue - minValue) % smallStep);
+  return std::min(snapped, lastStep);
 }
 
 void IntervalSelectionActivity::onEnter() {
@@ -145,7 +152,18 @@ void IntervalSelectionActivity::loop() {
 }
 
 void IntervalSelectionActivity::formatValue(char* buffer, const size_t size, const int forValue) const {
-  if (maxBoundaryLabelId != StrId::STR_NONE_OPT && forValue == maxValue) {
+  if (timeOfDay) {
+    int hour = forValue / 60;
+    const int minute = forValue % 60;
+    if (SETTINGS.clockFormat == 1) {
+      const char* suffix = hour < 12 ? tr(STR_AM) : tr(STR_PM);
+      hour %= 12;
+      if (hour == 0) hour = 12;
+      snprintf(buffer, size, "%d:%02d %s", hour, minute, suffix);
+    } else {
+      snprintf(buffer, size, "%02d:%02d", hour, minute);
+    }
+  } else if (maxBoundaryLabelId != StrId::STR_NONE_OPT && forValue == maxValue) {
     snprintf(buffer, size, "%s", I18N.get(maxBoundaryLabelId));
   } else if (valueFormatId != StrId::STR_NONE_OPT) {
     snprintf(buffer, size, I18N.get(valueFormatId), static_cast<unsigned int>(forValue));

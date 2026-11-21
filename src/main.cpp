@@ -26,6 +26,7 @@
 #include <esp_wifi.h>
 #include <time.h>
 
+#include <algorithm>
 #include <atomic>
 #include <cstdarg>
 #include <cstring>
@@ -44,9 +45,11 @@
 #include "activities/ActivityManager.h"
 #include "activities/settings/SdFirmwareUpdateActivity.h"
 #include "components/UITheme.h"
+#include "components/icons/listIcons.h"
 #include "fontIds.h"
 #include "platform/UsbSerialJtagHandoff.h"
 #include "util/ButtonNavigator.h"
+#include "util/FrontlightSchedule.h"
 #include "util/PluginEvents.h"
 #include "util/ScreenshotUtil.h"
 #include "util/SlideSwitch.h"
@@ -69,6 +72,44 @@ FontDecompressor fontDecompressor;
 SdCardFontSystem sdFontSystem;
 FontCacheManager fontCacheManager(renderer.getFontMap(), renderer.getSdCardFonts(), renderer.getTtfFonts());
 static unsigned long allowSleepAt = 0;
+static int lastFrontlightScheduleMinute = -1;
+static bool lastFrontlightScheduleOn = false;
+static bool frontlightScheduleWasActive = false;
+static bool frontlightScheduleWasSwitchOwned = false;
+static bool frontlightScheduleManualOverride = false;
+static unsigned long lastFrontlightScheduleCheckMs = 0;
+
+static bool getScheduledFrontlightState(bool& scheduledOn, int* minuteOfDay = nullptr) {
+  if (!SETTINGS.frontlightScheduleEnabled || !halClock.isAvailable()) return false;
+  const uint16_t start = SETTINGS.frontlightScheduleStartMinute;
+  const uint16_t end = SETTINGS.frontlightScheduleEndMinute;
+  if (start >= 24 * 60 || end >= 24 * 60) return false;
+  struct tm local{};
+  if (!halClock.localTime(local) || local.tm_year < 120) return false;
+  const int now = local.tm_hour * 60 + local.tm_min;
+  if (minuteOfDay) *minuteOfDay = now;
+  // The first configured time is when the light turns off; the second is
+  // when it turns back on. Equal times mean there is no scheduled-off window.
+  const bool scheduledOff = start == end ? false : start < end ? now >= start && now < end : now >= start || now < end;
+  scheduledOn = !scheduledOff;
+  return true;
+}
+
+static void drawFrontlightScheduleReminder() {
+  RenderLock lock;
+  const char* message = tr(STR_LIGHT_ON_OUTSIDE_SCHEDULE);
+  const int screenWidth = renderer.getScreenWidth();
+  const int textWidth = renderer.getTextWidth(UI_10_FONT_ID, message);
+  const int boxWidth = std::min(screenWidth - 16, textWidth + 52);
+  const int boxHeight = renderer.getLineHeight(UI_10_FONT_ID) + 16;
+  const int x = (screenWidth - boxWidth) / 2;
+  constexpr int y = 8;
+  renderer.fillRect(x, y, boxWidth, boxHeight, false);
+  renderer.drawRect(x, y, boxWidth, boxHeight, true);
+  renderer.drawIcon(icon_sun_32.bits, x + 7, y + (boxHeight - 24) / 2, 24);
+  renderer.drawText(UI_10_FONT_ID, x + 38, y + (boxHeight - renderer.getLineHeight(UI_10_FONT_ID)) / 2 + 1, message);
+  renderer.displayBuffer(HalDisplay::FAST_REFRESH);
+}
 
 // Fonts
 EpdFont notosans14RegularFont(&notosans_14_regular);
@@ -214,11 +255,25 @@ void restartToHomeAfterStorageHandoff() {
 
 void toggleFrontlight() {
   if (!Frontlight.present()) return;
-  const bool lightOn = !Frontlight.isOn();
+  setFrontlightManually(!Frontlight.isOn());
+  LOG_INF("LIGHT", "Frontlight toggled %s", Frontlight.isOn() ? "on" : "off");
+}
+
+void setFrontlightManually(const bool lightOn) {
+  if (!Frontlight.present()) return;
   Frontlight.setOn(lightOn);
   SETTINGS.frontlightOn = lightOn ? 1 : 0;
+  bool scheduledOn = false;
+  if (getScheduledFrontlightState(scheduledOn)) {
+    SETTINGS.frontlightScheduleManualOverride = 1;
+    SETTINGS.frontlightScheduleOverrideWindow = scheduledOn ? 1 : 0;
+    frontlightScheduleManualOverride = true;
+  } else {
+    SETTINGS.frontlightScheduleManualOverride = 0;
+    SETTINGS.frontlightScheduleOverrideWindow = 2;
+    frontlightScheduleManualOverride = false;
+  }
   SETTINGS.saveToFile();
-  LOG_INF("LIGHT", "Frontlight toggled %s", lightOn ? "on" : "off");
 }
 
 // Applies the slide switch's position to the bound function at boot, on each
@@ -243,13 +298,18 @@ void handleSlideSwitch() {
       if ((SETTINGS.touchReaderControls != CrossPointSettings::TOUCH_READER_OFF) == on) return;
       SETTINGS.touchReaderControls = on ? CrossPointSettings::TOUCH_READER_ON : CrossPointSettings::TOUCH_READER_OFF;
       break;
-    default:
-      // Also compare the saved state: setup() lit the light from the switch
-      // without updating it.
-      if (!Frontlight.present() || (Frontlight.isOn() == on && (SETTINGS.frontlightOn != 0) == on)) return;
-      Frontlight.setOn(on);
-      SETTINGS.frontlightOn = on ? 1 : 0;
+    default: {
+      // With a schedule, the switch can turn the light on during the scheduled
+      // off window, but its off position cannot block the scheduled on time.
+      // Without a valid schedule the physical switch remains authoritative.
+      bool scheduledOn = false;
+      const bool hasSchedule = getScheduledFrontlightState(scheduledOn);
+      const bool desiredOn = hasSchedule ? scheduledOn || on : on;
+      if (!Frontlight.present() || Frontlight.isOn() == desiredOn) return;
+      Frontlight.setOn(desiredOn);
+      SETTINGS.frontlightOn = desiredOn ? 1 : 0;
       break;
+    }
   }
   SETTINGS.saveToFile();
   activityManager.requestUpdate();
@@ -349,17 +409,10 @@ static bool loadSleepFrameBuffer() {
   return true;
 }
 
-// Plugin-event delivery on the way into deep sleep. sleep.enter is delivered
-// now — over the live connection, or by bringing WiFi up when a plugin
-// subscribes (e.g. fetching a fresh /sleep.bmp so THIS sleep shows it — the
-// drain runs before goToSleep() renders the sleep screen). The connect path
-// is bounded (join deadline + drain event budget), skipped on low battery,
-// and sleep is never blocked on the network: a failed join or delivery just
-// sleeps with the previous image and the queued events retry on the next
-// drain (at-least-once). The caller's WiFi shutdown tears the radio down
-// either way. Deferrable events already queued (reader.exit) ride along in
-// the same drain.
-static void deliverSleepPluginEvents(const bool allowNetwork) {
+// Queue sleep events before leaving the reader so reader.exit stays ordered
+// after sleep.enter. Network delivery happens only after the sleep frame is
+// visible; it must never hold the screen transition hostage.
+static void queueSleepPluginEvents() {
   // Activity-owned state must be queued before sleep.enter and before this
   // same-sleep drain. The hook is idempotent with ordinary activity teardown.
   activityManager.prepareForSleep();
@@ -381,9 +434,14 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
     vars[varCount++] = {"end_percent", endPercent};
   }
   pluginevents::emit(pluginevents::Event::SleepEnter, vars, varCount);
+}
+
+// The bounded connect path remains best-effort. It runs after the sleep image
+// has appeared so plugin work cannot delay the user's immediate feedback.
+static void deliverSleepPluginEvents(const bool allowNetwork) {
   if (!allowNetwork) return;
   if (WiFi.status() == WL_CONNECTED) {
-    pluginevents::drain(&renderer);
+    pluginevents::drain(nullptr);
     return;
   }
   // Any connect-flagged queued event justifies the join, not only
@@ -396,7 +454,6 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
   const auto cred = WIFI_STORE.findCredential(WIFI_STORE.getLastConnectedSsid());
   if (!cred) return;
 
-  GUI.drawPopup(renderer, tr(STR_LOADING_POPUP));
   WiFi.mode(WIFI_STA);
   WiFi.begin(cred->ssid.c_str(), cred->password.c_str());
   const unsigned long joinDeadline = millis() + 10000;
@@ -405,7 +462,7 @@ static void deliverSleepPluginEvents(const bool allowNetwork) {
   }
   if (WiFi.status() == WL_CONNECTED) {
     trustedtime::startSync();  // snap the clock floor while the network is up
-    pluginevents::drain(&renderer);
+    pluginevents::drain(nullptr);
   } else {
     LOG_DBG("MAIN", "Sleep-event WiFi join timed out; deferring delivery");
   }
@@ -455,16 +512,8 @@ static bool holdSleepWhileUsbPowered() {
 void enterDeepSleep(bool fromTimeout = false) {
   HalPowerManager::Lock powerLock;  // Ensure we are at normal CPU frequency for sleep preparation
   APP_STATE.lastSleepFromReader = activityManager.isReaderActivity();
-
-  // Sleep may end in a power-off (battery death, latch); persist the clock
-  // floor now so a later cold boot resumes from it.
-  trustedtime::note();
-
-  // Stop Bluetooth before plugin delivery can start WiFi; a timeout defers delivery.
   deepSleepInProgress = true;
-  const bool bluetoothStopped = bleturner::beforeSleep(2000);
-  if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
-  deliverSleepPluginEvents(bluetoothStopped);
+  queueSleepPluginEvents();
 
   const bool isQuickResumeSleep =
       SETTINGS.sleepScreen == CrossPointSettings::SLEEP_SCREEN_MODE::QUICK_RESUME ||
@@ -474,9 +523,21 @@ void enterDeepSleep(bool fromTimeout = false) {
   // it visible until the first useful reader or home paint replaces it.
   APP_STATE.showBootScreen = false;
 
-  APP_STATE.saveToFile();
-
+  // Paint the final sleep image before radio shutdown, plugin network work, or
+  // persistence. SleepActivity uses a single fast B/W refresh for this path.
   activityManager.goToSleep(fromTimeout);
+
+  // Turn off any controllable frontlight only after the sleep frame has
+  // reached the panel. This is a no-op on boards without a frontlight.
+  if (Frontlight.present()) Frontlight.setOn(false);
+
+  // These operations may take seconds; the requested sleep image is already
+  // visible, so they can finish before power is removed without flashing it.
+  trustedtime::note();
+  APP_STATE.saveToFile();
+  const bool bluetoothStopped = bleturner::beforeSleep(2000);
+  if (!bluetoothStopped) LOG_ERR("SLP", "Bluetooth did not stop; deferring sleep-event delivery");
+  deliverSleepPluginEvents(bluetoothStopped);
 
   if (isQuickResumeSleep) {
     saveSleepFrameBuffer();
@@ -493,9 +554,6 @@ void enterDeepSleep(bool fromTimeout = false) {
   }
 
 #if FREEINK_DEVICE_PICCO
-  // The I2C LED driver keeps its state through deep sleep; switch it off here
-  // (SETTINGS.frontlightOn keeps the preference for restore-on-wake).
-  Frontlight.setOn(false);
   const bool wakeOnHeldButton = holdSleepWhileUsbPowered();
 #else
   const bool wakeOnHeldButton = false;
@@ -734,12 +792,32 @@ void setup() {
   // light off unless Restore Light on Wake is enabled; silent maintenance
   // reboots replay the live state captured at restart, so they neither go dark
   // nor light up against the user's wake preference. A slide switch bound to
-  // the light decides it from its position instead.
-  const bool restoreLightOn = isSilentReboot ? silentRebootLightOn
-                              : slideSwitchOwnsLight()
-                                  ? gpio.isToggleSwitchOn()
-                                  : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
+  // the schedule drives the light unless the switch is on during a scheduled-
+  // off window, where it acts as a manual override.
+  bool scheduledLightOn = false;
+  int scheduleMinute = -1;
+  const bool hasValidLightSchedule = getScheduledFrontlightState(scheduledLightOn, &scheduleMinute);
+  const bool switchOwnsLight = slideSwitchOwnsLight();
+  frontlightScheduleManualOverride =
+      hasValidLightSchedule && SETTINGS.frontlightScheduleManualOverride != 0 &&
+      SETTINGS.frontlightScheduleOverrideWindow == static_cast<uint8_t>(scheduledLightOn ? 1 : 0);
+  if (SETTINGS.frontlightScheduleManualOverride && !frontlightScheduleManualOverride) {
+    SETTINGS.frontlightScheduleManualOverride = 0;
+    SETTINGS.frontlightScheduleOverrideWindow = 2;
+    SETTINGS.saveToFile();
+  }
+  const bool restoreLightOn =
+      switchOwnsLight ? (hasValidLightSchedule ? scheduledLightOn || gpio.isToggleSwitchOn() : gpio.isToggleSwitchOn())
+      : hasValidLightSchedule ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
+      : isSilentReboot        ? silentRebootLightOn
+                              : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
   Frontlight.begin(SETTINGS.frontlightBrightness, SETTINGS.frontlightWarmth, restoreLightOn);
+  lastFrontlightScheduleMinute = hasValidLightSchedule ? scheduleMinute : -1;
+  lastFrontlightScheduleOn = scheduledLightOn;
+  frontlightScheduleWasActive = hasValidLightSchedule;
+  frontlightScheduleWasSwitchOwned = slideSwitchOwnsLight();
+  const bool showLightScheduleReminder =
+      isPersistedSleepWake && hasValidLightSchedule && Frontlight.isOn() && !scheduledLightOn;
   // No light to toggle: drop the action so single clicks do not wait for a double click.
   if (!Frontlight.present() && SETTINGS.doublePwrBtn == CrossPointSettings::PWR_FRONTLIGHT) {
     SETTINGS.doublePwrBtn = CrossPointSettings::IGNORE;
@@ -850,6 +928,12 @@ void setup() {
     gpio.update();
   }
 
+  if (showLightScheduleReminder) {
+    activityManager.requestUpdateAndWait();
+    drawFrontlightScheduleReminder();
+    delay(5000);
+  }
+
   mappedInputManager.beginPowerInput(!isSilentReboot || suppressRestartPower, mappedInputManager.isPowerHeld());
   allowSleepAt = millis() + (isSilentReboot ? 0 : 2000);
 }
@@ -899,6 +983,52 @@ void loop() {
 
   // After the exclusive-storage return: it saves settings to the SD card.
   handleSlideSwitch();
+  if (Frontlight.present() && millis() - lastFrontlightScheduleCheckMs >= 1000) {
+    lastFrontlightScheduleCheckMs = millis();
+    int scheduleMinute = -1;
+    bool scheduledLightOn = false;
+    const bool scheduleActive = getScheduledFrontlightState(scheduledLightOn, &scheduleMinute);
+    const bool switchOwnsLight = slideSwitchOwnsLight();
+    const bool scheduleControlReturned = frontlightScheduleWasSwitchOwned && !switchOwnsLight;
+    if (!scheduleActive) {
+      if (frontlightScheduleWasActive) {
+        frontlightScheduleManualOverride = false;
+        SETTINGS.frontlightScheduleManualOverride = 0;
+        SETTINGS.frontlightScheduleOverrideWindow = 2;
+        const bool restoreOn = switchOwnsLight ? gpio.isToggleSwitchOn() : SETTINGS.frontlightOn != 0;
+        if (Frontlight.isOn() != restoreOn) {
+          Frontlight.setOn(restoreOn);
+        }
+        SETTINGS.saveToFile();
+      }
+      frontlightScheduleWasActive = false;
+      lastFrontlightScheduleMinute = -1;
+    } else if (!frontlightScheduleWasActive || scheduleMinute != lastFrontlightScheduleMinute ||
+               scheduleControlReturned) {
+      const bool scheduleStateChanged = frontlightScheduleWasActive && scheduledLightOn != lastFrontlightScheduleOn;
+      if (frontlightScheduleManualOverride &&
+          SETTINGS.frontlightScheduleOverrideWindow != static_cast<uint8_t>(scheduledLightOn ? 1 : 0)) {
+        frontlightScheduleManualOverride = false;
+        SETTINGS.frontlightScheduleManualOverride = 0;
+        SETTINGS.frontlightScheduleOverrideWindow = 2;
+        SETTINGS.frontlightOn = scheduledLightOn ? 1 : 0;
+        SETTINGS.saveToFile();
+      }
+      if (!frontlightScheduleWasActive || scheduleStateChanged || scheduleControlReturned) {
+        const bool manualOverride = !switchOwnsLight && frontlightScheduleManualOverride;
+        const bool desiredOn = manualOverride ? SETTINGS.frontlightOn != 0
+                                              : scheduledLightOn || (switchOwnsLight && gpio.isToggleSwitchOn());
+        if (Frontlight.isOn() != desiredOn) {
+          Frontlight.setOn(desiredOn);
+          LOG_INF("LIGHT", "Frontlight schedule applied %s", desiredOn ? "on" : "off");
+        }
+      }
+      frontlightScheduleWasActive = true;
+      lastFrontlightScheduleMinute = scheduleMinute;
+      lastFrontlightScheduleOn = scheduledLightOn;
+    }
+    frontlightScheduleWasSwitchOwned = switchOwnsLight;
+  }
   halTiltSensor.update(SETTINGS.tiltPageTurn, SETTINGS.orientation, activityManager.isReaderActivity());
 
   // Under the render lock, so a step never overlaps the themes' gauge reads.

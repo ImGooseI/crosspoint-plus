@@ -5,6 +5,7 @@
 #include <GfxRenderer.h>
 #include <HalClock.h>
 #include <HalDisplay.h>
+#include <HalFrontlight.h>
 #include <LibraryBuilder.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -21,6 +22,7 @@
 #include "ClockSettingsActivity.h"
 #include "CrossPointSettings.h"
 #include "FontDownloadActivity.h"
+#include "FrontlightScheduleActivity.h"
 #include "HomeButtonSettingsActivity.h"
 #include "KOReaderSettingsActivity.h"
 #include "KeyboardLayoutsActivity.h"
@@ -186,6 +188,9 @@ void SettingsActivity::rebuildSettings() {
   // Clock configuration only exists where the RTC probe found hardware.
   if (halClock.isAvailable()) {
     addAction(SettingsSection::General, StrId::STR_CLOCK, SettingAction::ClockSettings);
+    if (Frontlight.present()) {
+      addAction(SettingsSection::Display, StrId::STR_FRONTLIGHT_SCHEDULE, SettingAction::FrontlightSchedule);
+    }
   }
   addAction(SettingsSection::Reader, StrId::STR_CUSTOMISE_STATUS_BAR, SettingAction::CustomiseStatusBar);
   addAction(SettingsSection::Reader, StrId::STR_CLEAR_READING_CACHE, SettingAction::ClearCache);
@@ -508,6 +513,13 @@ void SettingsActivity::toggleSelectedSetting() {
         });
         requestUpdate();
         return;
+        case SettingAction::FrontlightSchedule:
+          if (auto activity = makeUniqueNoThrow<FrontlightScheduleActivity>(renderer, mappedInput)) {
+            startActivityForResult(std::move(activity), resultHandler);
+          } else {
+            LOG_ERR("SETTINGS", "OOM: FrontlightScheduleActivity");
+          }
+          break;
       }
       case SettingAction::KeyboardLayouts:
         if (auto activity = makeUniqueNoThrow<KeyboardLayoutsActivity>(renderer, mappedInput)) {

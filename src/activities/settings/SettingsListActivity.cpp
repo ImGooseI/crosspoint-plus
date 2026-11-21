@@ -10,6 +10,7 @@
 #include "SettingsActivity.h"
 #include "components/UITheme.h"
 #include "components/UiAppHelpers.h"
+#include "util/FirmwareIdentity.h"
 
 namespace fui = freeink::ui;
 
@@ -107,8 +108,7 @@ void SettingsListActivity::onBackButton() { onGoHome(); }
 
 void SettingsListActivity::drawChrome() {
   const auto& metrics = UITheme::getInstance().getMetrics();
-  // Version rides in the header's trailing label slot: the footer position
-  // conflicts with button hints on non-touch devices.
+  // Keep the build identity visible without exposing the branch and commit tag.
   GUI.drawHeader(renderer, Rect{0, metrics.topPadding, renderer.getScreenWidth(), metrics.headerHeight},
-                 tr(STR_SETTINGS_TITLE), CROSSPOINT_VERSION);
+                 tr(STR_SETTINGS_TITLE), firmwareidentity::DISPLAY_NAME);
 }

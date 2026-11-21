@@ -10,6 +10,7 @@
 #include "MappedInputManager.h"
 #include "ReaderUtils.h"
 #include "components/UITheme.h"
+#include "util/FrontlightSchedule.h"
 #include "util/PluginEvents.h"
 #include "util/SlideSwitch.h"
 
@@ -176,9 +177,7 @@ void EpubReaderMenuActivity::activateIndex(const int index) {
 
   if (selectedAction == MenuAction::FRONTLIGHT) {
     const bool lightOn = !Frontlight.isOn();
-    Frontlight.setOn(lightOn);
-    SETTINGS.frontlightOn = lightOn ? 1 : 0;
-    SETTINGS.saveToFile();
+    setFrontlightManually(lightOn);
     requestUpdate();
     return;
   }

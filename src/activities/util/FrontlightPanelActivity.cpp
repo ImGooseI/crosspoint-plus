@@ -3,21 +3,26 @@
 #include <BlePageTurner.h>
 #include <FreeInkUIIcon.h>
 #include <GfxRenderer.h>
+#include <HalClock.h>
 #include <HalFrontlight.h>
 #include <HalGPIO.h>
 #include <I18n.h>
+#include <Memory.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <iterator>
+#include <utility>
 
 #include "CrossPointSettings.h"
 #include "MappedInputManager.h"
+#include "activities/settings/FrontlightScheduleActivity.h"
 #include "components/UITheme.h"
 #include "components/UIThemeTokens.h"
 #include "components/icons/customListIcons.h"
 #include "components/icons/listIcons.h"
 #include "components/icons/readerToolbarIcons.h"
+#include "util/FrontlightSchedule.h"
 #include "util/SlideSwitch.h"
 
 namespace fui = freeink::ui;
@@ -29,6 +34,7 @@ constexpr fui::ActionId ACTION_TOGGLE = 3;
 constexpr fui::ActionId ACTION_BRIGHTNESS_STEP = 4;
 constexpr fui::ActionId ACTION_WARMTH_STEP = 5;
 constexpr fui::ActionId ACTION_TILE = 6;  // value = tile index
+constexpr fui::ActionId ACTION_SCHEDULE = 7;
 
 // iOS-style geometry. The panel is a card hanging from the top of the screen:
 // a grabber, full-width slider pills, then a row of quick-setting icons. The chrome
@@ -82,6 +88,7 @@ void FrontlightPanelActivity::onEnter() {
   app.on(ACTION_BRIGHTNESS_STEP, &FrontlightPanelActivity::onBrightnessStepEvent, this);
   app.on(ACTION_WARMTH_STEP, &FrontlightPanelActivity::onWarmthStepEvent, this);
   app.on(ACTION_TILE, &FrontlightPanelActivity::onTileEvent, this);
+  app.on(ACTION_SCHEDULE, &FrontlightPanelActivity::onScheduleEvent, this);
   app.setScreen(&FrontlightPanelActivity::panelScreen, this);
   requestUpdate();
 }
@@ -116,7 +123,7 @@ void FrontlightPanelActivity::onBrightnessEvent(const fui::ActionEvent& event, v
   if (!self->lightOn && !slideSwitchOwnsLight()) {
     self->lightOn = true;
     self->lightOnChanged = true;
-    Frontlight.setOn(true);
+    setFrontlightManually(true);
   }
 }
 
@@ -141,6 +148,16 @@ void FrontlightPanelActivity::onWarmthStepEvent(const fui::ActionEvent& event, v
 
 void FrontlightPanelActivity::onTileEvent(const fui::ActionEvent& event, void* user) {
   static_cast<FrontlightPanelActivity*>(user)->runTile(event.value);
+}
+
+void FrontlightPanelActivity::onScheduleEvent(const fui::ActionEvent&, void* user) {
+  static_cast<FrontlightPanelActivity*>(user)->openSchedule();
+}
+
+void FrontlightPanelActivity::openSchedule() {
+  auto activity = makeUniqueNoThrow<FrontlightScheduleActivity>(renderer, mappedInput);
+  if (!activity) return;
+  startActivityForResult(std::move(activity), [this](const ActivityResult&) { requestUpdate(); });
 }
 
 void FrontlightPanelActivity::runTile(const int idx) {
@@ -205,7 +222,7 @@ void FrontlightPanelActivity::adjustBrightness(const int delta) {
   if (!lightOn && !slideSwitchOwnsLight()) {
     lightOn = true;
     lightOnChanged = true;
-    Frontlight.setOn(true);
+    setFrontlightManually(true);
   }
   requestUpdate();
 }
@@ -223,7 +240,7 @@ void FrontlightPanelActivity::adjustWarmth(const int delta) {
 void FrontlightPanelActivity::toggleLight() {
   lightOn = !lightOn;
   lightOnChanged = true;
-  Frontlight.setOn(lightOn);
+  setFrontlightManually(lightOn);
   requestUpdate();
 }
 
@@ -299,6 +316,7 @@ int FrontlightPanelActivity::computePanelBottom() const {
     }
     y += tokens.spaceSm;
   }
+  if (Frontlight.present() && halClock.isAvailable()) y += lineHeight + tokens.spaceSm;
   // Icons are touch targets, so a buttons-only board gets no row and the
   // sheet is exactly the frontlight controls.
   if (mappedInput.hasTouch()) y += kQuickControlSize;
@@ -383,6 +401,16 @@ void FrontlightPanelActivity::buildPanelScreen(UiScreen& screen) {
       addSliderRow(screen, tr(STR_WARMTH), warmth, ACTION_WARMTH, ACTION_WARMTH_STEP, /*showToggle=*/false);
     }
     screen.spacer(theme.spaceSm);
+  }
+
+  if (Frontlight.present() && halClock.isAvailable()) {
+    const int16_t lineHeight = screen.target().lineHeight(theme.smallText.font);
+    char label[64];
+    snprintf(label, sizeof(label), "%s: %s", tr(STR_FRONTLIGHT_SCHEDULE),
+             SETTINGS.frontlightScheduleEnabled ? tr(STR_ENABLED) : tr(STR_DISABLED));
+    const fui::Rect row = screen.takeTop(lineHeight, theme.spaceSm);
+    screen.target().text(row, label, theme.smallText);
+    screen.frame().hit(row, ACTION_SCHEDULE, 0, fui::InputTouch);
   }
 
   // Match the reader toolbar's equal icon slots; the full slot is the touch target.

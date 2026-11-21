@@ -60,6 +60,7 @@
 #include "fontIds.h"
 #include "util/BookmarkUtil.h"
 #include "util/ButtonNavigator.h"
+#include "util/FrontlightSchedule.h"
 #include "util/ScreenshotUtil.h"
 
 namespace {
@@ -2184,8 +2185,7 @@ void EpubReaderActivity::renderContents(std::unique_ptr<Page> page, const int or
       const int rubyShift = block.getRubyShift(renderer.getFontAscenderSize(lineFontId));
       const int lineHeight = renderer.getLineHeight(lineFontId, SETTINGS.getReaderLineCompression()) +
                              block.extraAscent(renderer, fontId) + rubyShift;
-      const int y = orientedMarginTop + line.yPos + lineHeight +
-                    std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10) - 5;
+      const int y = orientedMarginTop + line.yPos + lineHeight + std::clamp<int>(SETTINGS.ruledPaperOffset, 0, 10) - 5;
       if (y < y0 || y >= y1) continue;
       const int darkness = std::min<int>(SETTINGS.ruledPaperDarkness, 3);
       const auto drawSegment = [&](const int fromX, const int toX) {
@@ -3344,9 +3344,7 @@ void EpubReaderActivity::activateMoreRow(int row) {
       return;
     case MA::FRONTLIGHT: {
       const bool lightOn = !Frontlight.isOn();
-      Frontlight.setOn(lightOn);
-      SETTINGS.frontlightOn = lightOn ? 1 : 0;
-      SETTINGS.saveToFile();
+      setFrontlightManually(lightOn);
       {
         RenderLock lock;  // the render task shares the framebuffer
         renderOverlay();
