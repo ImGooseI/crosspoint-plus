@@ -25,9 +25,15 @@
 #include "RecentBooksStore.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "activities/settings/ReadingStatsActivity.h"
+#endif
 
 int HomeActivity::getMenuItemCount() const {
   int count = 4;  // File Browser, Library, File transfer, Settings
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  ++count;
+#endif
   if (!recentBooks.empty()) {
     count += recentBooks.size();
   }
@@ -333,6 +339,13 @@ void HomeActivity::loop() {
       case HomeMenuItem::OPDS_BROWSER:
         onOpdsBrowserOpen();
         break;
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+      case HomeMenuItem::READING_STATS: {
+        auto activity = makeUniqueNoThrow<ReadingStatsActivity>(renderer, mappedInput);
+        if (activity) startActivityForResult(std::move(activity), [this](const ActivityResult&) { requestUpdate(); });
+        break;
+      }
+#endif
       case HomeMenuItem::FILE_TRANSFER:
         onFileTransferOpen();
         break;
@@ -557,6 +570,12 @@ void HomeActivity::render(RenderLock&&) {
     menuItems.insert(menuItems.begin() + 2, hasPlugins ? tr(STR_PLUGINS) : tr(STR_OPDS_BROWSER));
     menuIcons.insert(menuIcons.begin() + 2, hasPlugins ? Plugins : Book);
   }
+
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  const auto statsIndex = menuItems.begin() + (slotItem() != HomeMenuItem::NONE ? 3 : 2);
+  menuItems.insert(statsIndex, tr(STR_READING_STATS));
+  menuIcons.insert(menuIcons.begin() + (slotItem() != HomeMenuItem::NONE ? 3 : 2), Blocks);
+#endif
 
   if (metrics.homeContinueReadingInMenu && !recentBooks.empty()) {
     // Insert Continue Reading at the top if enabled in theme

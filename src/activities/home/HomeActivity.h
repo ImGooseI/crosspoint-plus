@@ -54,6 +54,10 @@ class HomeActivity final : public Activity {
     if (slot != HomeMenuItem::NONE && item == slot) return i;
     if (item == HomeMenuItem::PLUGINS) return 0;
     if (slot != HomeMenuItem::NONE) ++i;
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+    if (item == HomeMenuItem::READING_STATS) return i;
+    ++i;
+#endif
     // File Transfer also opens the OPDS browser, so it returns there without its slot.
     if (item == HomeMenuItem::FILE_TRANSFER || item == HomeMenuItem::OPDS_BROWSER) return i;
     ++i;
@@ -67,6 +71,9 @@ class HomeActivity final : public Activity {
     if (idx == i++) return HomeMenuItem::FILE_BROWSER;
     if (idx == i++) return HomeMenuItem::LIBRARY;
     if (slot != HomeMenuItem::NONE && idx == i++) return slot;
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+    if (idx == i++) return HomeMenuItem::READING_STATS;
+#endif
     if (idx == i++) return HomeMenuItem::FILE_TRANSFER;
     if (idx == i) return HomeMenuItem::SETTINGS_MENU;
     return HomeMenuItem::NONE;

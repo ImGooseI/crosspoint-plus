@@ -29,6 +29,9 @@ enum class SettingAction {
   Language,
   DownloadFonts,
   TextSettings,
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  ReadingStats,
+#endif
   FrontlightSchedule,
   Plugins,
   KeyboardLayouts,

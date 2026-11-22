@@ -30,6 +30,9 @@
 #include "MappedInputManager.h"
 #include "OpdsServerListActivity.h"
 #include "OtaUpdateActivity.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "ReadingStatsActivity.h"
+#endif
 #include "SdCardFontSystem.h"
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
@@ -142,6 +145,9 @@ void SettingsActivity::rebuildSettings() {
   addAction(SettingsSection::General, StrId::STR_KEYBOARD_LAYOUTS, SettingAction::KeyboardLayouts);
   addAction(SettingsSection::Reader, StrId::STR_TEXT_SETTINGS, SettingAction::TextSettings);
   addAction(SettingsSection::Reader, StrId::STR_MANAGE_FONTS, SettingAction::DownloadFonts);
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  addAction(SettingsSection::Reader, StrId::STR_READING_STATS, SettingAction::ReadingStats);
+#endif
   if (section == SettingsSection::Controls) {
     if (controlsGroup == ControlsGroup::Root) {
       if (BoardConfig::hasHomeKey()) {
@@ -499,6 +505,17 @@ void SettingsActivity::toggleSelectedSetting() {
                                  rebuildSettings();
                                });
         break;
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+      case SettingAction::ReadingStats: {
+        auto activity = makeUniqueNoThrow<ReadingStatsActivity>(renderer, mappedInput);
+        if (!activity) {
+          LOG_ERR("SET", "OOM: Reading statistics activity");
+          return;
+        }
+        startActivityForResult(std::move(activity), [this](const ActivityResult&) { requestUpdate(); });
+        break;
+      }
+#endif
       case SettingAction::Plugins: {
         static constexpr StrId OPTIONS[] = {StrId::STR_ENABLED, StrId::STR_DISABLED, StrId::STR_CANCEL};
         optionPopup.show(StrId::STR_PLUGINS, OPTIONS, 3, SETTINGS.pluginsEnabled ? 0 : 1, [this](const int idx) {

@@ -25,11 +25,20 @@ namespace {
 // Tab labels for Font | Size | Layout | Style.
 constexpr StrId TAB_NAME_IDS[] = {StrId::STR_FONT, StrId::STR_SIZE, StrId::STR_LAYOUT, StrId::STR_STYLE};
 
-constexpr StrId LAYOUT_ROW_NAME_IDS[] = {
-    StrId::STR_LINE_SPACING,          StrId::STR_WORD_SPACING, StrId::STR_CHARACTER_SPACING, StrId::STR_EXTRA_SPACING,
-    StrId::STR_PARAGRAPH_INDENTATION, StrId::STR_ALIGNMENT,    StrId::STR_SCREEN_MARGIN, StrId::STR_RULED_PAPER,
-    StrId::STR_RULED_PAPER_POSITION,  StrId::STR_RULED_PAPER_DARKNESS, StrId::STR_RULED_PAPER_INSET,
-    StrId::STR_RULED_PAPER_DOTTED,    StrId::STR_RULED_PAPER_DASH_LENGTH, StrId::STR_RULED_PAPER_GAP};
+constexpr StrId LAYOUT_ROW_NAME_IDS[] = {StrId::STR_LINE_SPACING,
+                                         StrId::STR_WORD_SPACING,
+                                         StrId::STR_CHARACTER_SPACING,
+                                         StrId::STR_EXTRA_SPACING,
+                                         StrId::STR_PARAGRAPH_INDENTATION,
+                                         StrId::STR_ALIGNMENT,
+                                         StrId::STR_SCREEN_MARGIN,
+                                         StrId::STR_RULED_PAPER,
+                                         StrId::STR_RULED_PAPER_POSITION,
+                                         StrId::STR_RULED_PAPER_DARKNESS,
+                                         StrId::STR_RULED_PAPER_INSET,
+                                         StrId::STR_RULED_PAPER_DOTTED,
+                                         StrId::STR_RULED_PAPER_DASH_LENGTH,
+                                         StrId::STR_RULED_PAPER_GAP};
 constexpr StrId STYLE_ROW_NAME_IDS[] = {StrId::STR_FOCUS_READING, StrId::STR_HYPHENATION_NO_PREVIEW,
                                         StrId::STR_EMBEDDED_STYLE_NO_PREVIEW, StrId::STR_TEXT_AA_NO_PREVIEW};
 
@@ -119,8 +128,7 @@ void TextSettingsActivity::rebuildRowItems() {
   for (int i = 0; i < (tab_ == Tab::Layout ? layoutCount : count); i++) {
     if (tab_ == Tab::Layout &&
         ((!SETTINGS.ruledPaper && i > static_cast<int>(LayoutRow::RuledPaper)) ||
-         (SETTINGS.ruledPaper && !SETTINGS.ruledPaperDotted &&
-          i > static_cast<int>(LayoutRow::RuledPaperDotted)))) {
+         (SETTINGS.ruledPaper && !SETTINGS.ruledPaperDotted && i > static_cast<int>(LayoutRow::RuledPaperDotted)))) {
       continue;
     }
     fui::ListItem item;
@@ -567,8 +575,7 @@ std::string TextSettingsActivity::layoutValueText(int row) const {
       return std::to_string(SETTINGS.screenMargin);
     case LayoutRow::RuledPaper:
     case LayoutRow::RuledPaperDotted:
-      return (static_cast<LayoutRow>(row) == LayoutRow::RuledPaper ? SETTINGS.ruledPaper
-                                                                   : SETTINGS.ruledPaperDotted)
+      return (static_cast<LayoutRow>(row) == LayoutRow::RuledPaper ? SETTINGS.ruledPaper : SETTINGS.ruledPaperDotted)
                  ? tr(STR_STATE_ON)
                  : tr(STR_STATE_OFF);
     case LayoutRow::RuledPaperPosition: {
