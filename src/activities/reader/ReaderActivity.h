@@ -7,6 +7,9 @@
 
 #include "EndOfBookOptions.h"
 #include "ReaderSession.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "ReadingStatsJournal.h"
+#endif
 #include "activities/Activity.h"
 
 class ReaderActivity : public Activity {
@@ -20,6 +23,11 @@ class ReaderActivity : public Activity {
   std::unique_ptr<EndOfBookOptions> endOfBookOptions;
   std::atomic<bool> endOfBookOptionsReady{false};
   ReaderSession readerSession;
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  ReadingStatsCapture readingStatsCapture;
+  bool readingStatsCompletionQueued = false;
+  void drainReadingStatsEvents();
+#endif
   std::atomic<bool> pageRendered{false};
   bool bookRemembered = false;
   void markPageRendered() { pageRendered.store(true, std::memory_order_release); }

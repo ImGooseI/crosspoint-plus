@@ -123,8 +123,7 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Toggle(StrId::STR_TEXT_AA, &CrossPointSettings::textAntiAliasing, "textAntiAliasing",
                            StrId::STR_CAT_READER)
            .withTextSettings());
-  emit(SettingInfo::Toggle(StrId::STR_RULED_PAPER, &CrossPointSettings::ruledPaper, "ruledPaper",
-                           StrId::STR_CAT_READER)
+  emit(SettingInfo::Toggle(StrId::STR_RULED_PAPER, &CrossPointSettings::ruledPaper, "ruledPaper", StrId::STR_CAT_READER)
            .withTextSettings());
   emit(SettingInfo::Value(StrId::STR_RULED_PAPER_POSITION, &CrossPointSettings::ruledPaperOffset, {0, 10, 1},
                           "ruledPaperOffset", StrId::STR_CAT_READER)
@@ -137,14 +136,14 @@ void forEachBaseSetting(SettingVisitor visit, void* context) {
   emit(SettingInfo::Value(StrId::STR_RULED_PAPER_INSET, &CrossPointSettings::ruledPaperInset, {0, 20, 5},
                           "ruledPaperInset", StrId::STR_CAT_READER)
            .withTextSettings());
-  emit(SettingInfo::Toggle(StrId::STR_RULED_PAPER_DOTTED, &CrossPointSettings::ruledPaperDotted,
-                           "ruledPaperDotted", StrId::STR_CAT_READER)
+  emit(SettingInfo::Toggle(StrId::STR_RULED_PAPER_DOTTED, &CrossPointSettings::ruledPaperDotted, "ruledPaperDotted",
+                           StrId::STR_CAT_READER)
            .withTextSettings());
   emit(SettingInfo::Value(StrId::STR_RULED_PAPER_DASH_LENGTH, &CrossPointSettings::ruledPaperDashLength, {1, 16, 1},
                           "ruledPaperDashLength", StrId::STR_CAT_READER)
            .withTextSettings());
-  emit(SettingInfo::Value(StrId::STR_RULED_PAPER_GAP, &CrossPointSettings::ruledPaperGap, {1, 16, 1},
-                          "ruledPaperGap", StrId::STR_CAT_READER)
+  emit(SettingInfo::Value(StrId::STR_RULED_PAPER_GAP, &CrossPointSettings::ruledPaperGap, {1, 16, 1}, "ruledPaperGap",
+                          StrId::STR_CAT_READER)
            .withTextSettings());
   emit(SettingInfo::Enum(StrId::STR_IMAGES, &CrossPointSettings::imageRendering,
                          {StrId::STR_IMAGES_DISPLAY, StrId::STR_IMAGES_PLACEHOLDER, StrId::STR_IMAGES_SUPPRESS,

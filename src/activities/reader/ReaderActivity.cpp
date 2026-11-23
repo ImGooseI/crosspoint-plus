@@ -52,6 +52,9 @@ void ReaderActivity::disableFastInitialRefresh() { pagesUntilFullRefresh = 0; }
 void ReaderActivity::notePageTurn(const bool forward, const bool succeeded) {
   RenderLock lock(*this);
   readerSession.noteTurn(forward, succeeded);
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  readingStatsCapture.noteTurn(forward, succeeded);
+#endif
 }
 
 void ReaderActivity::onEnter() {
@@ -81,6 +84,11 @@ void ReaderActivity::onEnter() {
     return;
   }
 
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  const std::string statsTitle = getBookTitle();
+  readingStatsCapture.setBook(bookPath.c_str(), statsTitle.c_str());
+  readingStatsCompletionQueued = false;
+#endif
   requestUpdate();
 }
 
@@ -128,7 +136,23 @@ void ReaderActivity::onExit() {
 
 void ReaderActivity::prepareForSleep() { flushReaderSession(); }
 
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+void ReaderActivity::drainReadingStatsEvents() {
+  ReadingStatsEvent event{};
+  while (readingStatsCapture.pop(event)) ReadingStatsJournal::accumulate(event);
+  const uint8_t dropped = readingStatsCapture.takeDroppedEvents();
+  if (dropped > 0) LOG_ERR("STAT", "Dropped %u pending reading events", static_cast<unsigned>(dropped));
+}
+#endif
+
 void ReaderActivity::flushReaderSession() {
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  readingStatsCapture.finish(millis(), trustedtime::trustedNow());
+  drainReadingStatsEvents();
+  ReadingStatsJournal::flush();
+  readingStatsCapture.reset();
+  readingStatsCompletionQueued = false;
+#endif
   if (!readerSession.isEmitWorthy() || !pluginevents::anySubscriber(pluginevents::Event::ReaderSession)) {
     readerSession.reset();
     return;
@@ -219,6 +243,10 @@ bool ReaderActivity::handleEndOfBookPageTurn(const bool prevTriggered, const boo
 }
 
 void ReaderActivity::loop() {
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  drainReadingStatsEvents();
+  ReadingStatsJournal::flushDue(millis());
+#endif
   rememberBookOnceRendered();
   clearEndOfBookOptionsIfNeeded();
   if (handleEndOfBookMenu()) return;
@@ -260,12 +288,26 @@ void ReaderActivity::render(RenderLock&&) {
     renderer.displayBuffer();
     onEndOfBookRendered();
     markPageRendered();
-    readerSession.onRenderComplete(millis(), trustedtime::trustedNow(), getProgressBasisPoints());
+    const int progress = getProgressBasisPoints();
+    const int64_t now = trustedtime::trustedNow();
+    readerSession.onRenderComplete(millis(), now, progress);
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+    readingStatsCapture.onRenderComplete(millis(), now, progress);
+    if (!readingStatsCompletionQueued) {
+      readingStatsCapture.queueCompletion(ReadingStatsJournal::currentDayKey(), progress);
+      readingStatsCompletionQueued = true;
+    }
+#endif
     return;
   }
 
   renderBook();
-  readerSession.onRenderComplete(millis(), trustedtime::trustedNow(), getProgressBasisPoints());
+  const int progress = getProgressBasisPoints();
+  const int64_t now = trustedtime::trustedNow();
+  readerSession.onRenderComplete(millis(), now, progress);
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  readingStatsCapture.onRenderComplete(millis(), now, progress);
+#endif
 }
 
 bool ReaderActivity::handleForcedRefresh() {

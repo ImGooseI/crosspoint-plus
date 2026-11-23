@@ -16,6 +16,9 @@
 #include "icons/library.h"
 #include "icons/settings2.h"
 #include "icons/transfer.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "icons/customListIcons.h"
+#endif
 #include "util/BookProgress.h"
 
 namespace fui = freeink::ui;
@@ -283,9 +286,16 @@ void CoverGridHomeUi::drawGrid(UiScreen& screen) {
 }
 
 void CoverGridHomeUi::drawTabs(UiScreen& screen, fui::Rect rect) {
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  static constexpr const uint8_t* ICONS[] = {FolderIcon,         LibraryIcon,  BlocksIcon,
+                                             icon_stats_32.bits, TransferIcon, Settings2Icon};
+  constexpr int ICON_COUNT = 6;
+#else
   static constexpr const uint8_t* ICONS[] = {FolderIcon, LibraryIcon, BlocksIcon, TransferIcon, Settings2Icon};
+  constexpr int ICON_COUNT = 5;
+#endif
   int count = 0;
-  for (int i = 0; i < 5; ++i) {
+  for (int i = 0; i < ICON_COUNT; ++i) {
     if (i == 2 && slotTab == SlotTab::NONE) continue;
     auto& tab = tabItems[count];
     tab.value = books->size() + count;

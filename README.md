@@ -5,8 +5,25 @@ This is my personal build of [CrossPoint Reader](https://github.com/crosspoint-r
 ## What I changed
 
 - Ruled paper lines you can turn on and adjust while reading. Choose solid or dotted lines and change their spacing and length. The lines stay out of chapter headings.
+- Reading stats with a monthly activity calendar, year view, daily reading details, weekly reading-time chart, and adjustable daily goal. The overview shows lifetime reading totals, the current book, and the last completed book. Open stats from the Home Screen shortcut; on button-only devices, use the physical controls to move through dates and open a day or month.
 - A quick sleep screen that appears before the rest of the sleep work finishes.
 - A frontlight schedule that follows local time. Set when the light should turn off and when it should turn back on. On the Picco, the schedule controls the light by default. At a cold boot, an ON switch during scheduled-off hours turns it on; moving the switch during either schedule window overrides the light until the next schedule change. On devices using a button for the light, turning it on during scheduled-off hours keeps it on through sleep and shows a five-second reminder on wake. Turning it off during scheduled-on hours lasts until the next sleep wake, when the schedule turns it back on.
+
+### Reading stats
+
+<table>
+  <tr>
+    <td align="center"><img src="docs/images/reading-stats-home.jpg" width="260" alt="Home Screen with the reading stats shortcut"><br>Home Screen shortcut</td>
+    <td align="center"><img src="docs/images/reading-stats-month.jpg" width="260" alt="Monthly reading activity calendar and weekly reading time"><br>Monthly activity</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/reading-stats-day-detail.jpg" width="260" alt="Daily reading details popup"><br>Daily details</td>
+    <td align="center"><img src="docs/images/reading-stats-year.jpg" width="260" alt="Year view with monthly activity calendars"><br>Year view</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/images/reading-stats-overview.jpg" width="260" alt="Reading overview with lifetime stats, current book, and last completed book"><br>Reading overview</td>
+  </tr>
+</table>
 
 ## Devices
 

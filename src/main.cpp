@@ -290,7 +290,7 @@ void handleSlideSwitch() {
   const bool physicalPositionChanged = positionInitialized && positionChanged;
   if (!actionChanged && !positionChanged) return;
   const bool leavingLightSwitch = actionChanged && appliedAction == CrossPointSettings::SLIDE_SWITCH_FRONTLIGHT &&
-                                 SETTINGS.slideSwitchAction != CrossPointSettings::SLIDE_SWITCH_FRONTLIGHT;
+                                  SETTINGS.slideSwitchAction != CrossPointSettings::SLIDE_SWITCH_FRONTLIGHT;
   appliedAction = SETTINGS.slideSwitchAction;
   appliedOn = on;
   if (leavingLightSwitch) {
@@ -842,9 +842,9 @@ void setup() {
     SETTINGS.saveToFile();
   }
   const bool restoreLightOn =
-      switchOwnsLight ? (hasValidLightSchedule
-                             ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
-                             : gpio.isToggleSwitchOn())
+      switchOwnsLight
+          ? (hasValidLightSchedule ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
+                                   : gpio.isToggleSwitchOn())
       : hasValidLightSchedule ? (frontlightScheduleManualOverride ? SETTINGS.frontlightOn != 0 : scheduledLightOn)
       : isSilentReboot        ? silentRebootLightOn
                               : (SETTINGS.frontlightOn != 0 && SETTINGS.frontlightRestoreOnWake != 0);
