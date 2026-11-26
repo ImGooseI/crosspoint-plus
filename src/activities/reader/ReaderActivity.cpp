@@ -19,6 +19,9 @@
 #include "SdCardFontSystem.h"
 #include "XtcReaderActivity.h"
 #include "util/PluginEvents.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "ReadingStatsSync.h"
+#endif
 
 ReaderActivity::ReaderActivity(const char* name, GfxRenderer& renderer, MappedInputManager& mappedInput,
                                std::string bookPath, const bool allowFastInitialRefresh)
@@ -150,6 +153,10 @@ void ReaderActivity::flushReaderSession() {
   readingStatsCapture.finish(millis(), trustedtime::trustedNow());
   drainReadingStatsEvents();
   ReadingStatsJournal::flush();
+  if (readerSession.isEmitWorthy()) {
+    readingStatsSync::recordSession(bookPath, readerSession.startTime(), readerSession.endTime(),
+                                    readerSession.durationSeconds());
+  }
   readingStatsCapture.reset();
   readingStatsCompletionQueued = false;
 #endif

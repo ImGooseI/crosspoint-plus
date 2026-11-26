@@ -26,6 +26,9 @@
 #include "components/UiAppHelpers.h"  // list icons for the compare rows
 #include "fontIds.h"
 #include "network/WifiPowerSaveGuard.h"
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+#include "ReadingStatsSync.h"
+#endif
 #include "util/PluginEvents.h"
 #include "util/PluginHttp.h"
 
@@ -173,6 +176,13 @@ void KOReaderSyncActivity::performSync() {
   const std::string primaryHash = documentHash;
 
   LOG_DBG("KOSync", "Document hash (%s): %s", matchMethodName(primaryMethod), documentHash.c_str());
+
+#if defined(CROSSPOINT_ENABLE_READING_STATS)
+  if (KOREADER_STORE.getServerType() == KOReaderServerType::CROSSPOINT &&
+      !readingStatsSync::sync()) {
+    LOG_INF("STAT", "Reading stats remain queued for the next CrossPoint Sync");
+  }
+#endif
 
   if (KOREADER_STORE.getSyncClippings()) {
     {
