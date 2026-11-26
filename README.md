@@ -25,6 +25,12 @@ This is my personal build of [CrossPoint Reader](https://github.com/crosspoint-r
   </tr>
 </table>
 
+Reading stats sync through the configured CrossPoint Sync account during a normal CrossPoint Sync operation. Measured reader sessions are saved locally first and stay queued until the server acknowledges them, so a temporary network failure does not discard them. The server combines the account’s activity across devices; each device’s daily goal setting remains local.
+
+The stat labeled **Pages** means estimated print pages progressed through, not physical screen turns. CrossPoint Sync derives it from forward progress changes and a known print-edition page count, then combines progress across devices without counting overlapping progress twice. The calendar’s daily Pages value counts new forward progress for that day. This gives a useful cross-device number even though devices do not share reliable turn-by-turn page counts; days without a known page count may not contribute.
+
+Daily session counts and reading time are refreshed from the account’s exported reading history. That history can include measured sessions and, for sources that only report progress or daily totals, server-generated estimates. As a result, session counts can represent account history entries rather than a literal count of times the reader was opened.
+
 ## Devices
 
 I have tested the firmware on my own **X3/X4, X4 Pro, and Picco**. Builds for all eight device profiles currently supported by this project completed successfully; the other five still need testing on the actual devices.

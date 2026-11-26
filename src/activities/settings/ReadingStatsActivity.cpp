@@ -25,6 +25,7 @@
 #include "components/UITheme.h"
 #include "components/themes/BaseTheme.h"
 #include "RecentBooksStore.h"
+#include "ReadingStatsSync.h"
 #include "fontIds.h"
 #include "activities/util/IntervalSelectionActivity.h"
 
@@ -178,6 +179,56 @@ void ReadingStatsActivity::reloadSnapshot() {
     LOG_ERR("STAT", "Could not load reading statistics");
     snapshot = {};
     snapshot.year = selectedYear;
+  }
+  readingStatsSync::RemoteSummary remote{};
+  if (readingStatsSync::readRemoteSummary(remote)) {
+    // The server summary includes this and other readers. Keep any newer
+    // offline activity from the local journal while avoiding double-counting
+    // the copy of this reader already uploaded to the account.
+    snapshot.lifetimeSeconds = std::max(snapshot.lifetimeSeconds, remote.seconds);
+    snapshot.lifetimeSessions = std::max(snapshot.lifetimeSessions, remote.sessions);
+    snapshot.lifetimePages = remote.pages;
+    snapshot.completedBooks = std::max(snapshot.completedBooks, remote.completedBooks);
+    snapshot.lifetimeReadingDays = std::max<uint64_t>(snapshot.lifetimeReadingDays, remote.readingDays);
+    snapshot.currentStreak = std::max(snapshot.currentStreak, remote.currentStreak);
+    snapshot.longestStreak = std::max(snapshot.longestStreak, remote.longestStreak);
+  }
+  uint32_t syncedPages[ReadingStatsSnapshot::DAYS_IN_YEAR]{};
+  if (readingStatsSync::readRemoteDayPages(selectedYear, syncedPages, ReadingStatsSnapshot::DAYS_IN_YEAR)) {
+    for (int day = 0; day < ReadingStatsSnapshot::DAYS_IN_YEAR; ++day) {
+      snapshot.days[day].pages = syncedPages[day];
+    }
+  }
+  uint32_t syncedSeconds[ReadingStatsSnapshot::DAYS_IN_YEAR]{};
+  uint16_t syncedSessions[ReadingStatsSnapshot::DAYS_IN_YEAR]{};
+  if (readingStatsSync::readRemoteDayStats(selectedYear, syncedSeconds, syncedSessions,
+                                           ReadingStatsSnapshot::DAYS_IN_YEAR)) {
+    // The export is account-wide. Keep local activity that has not reached
+    // the server yet while showing the larger cross-device daily totals.
+    for (int day = 0; day < ReadingStatsSnapshot::DAYS_IN_YEAR; ++day) {
+      snapshot.days[day].seconds = std::max(snapshot.days[day].seconds, syncedSeconds[day]);
+      snapshot.days[day].sessions = std::max(snapshot.days[day].sessions, syncedSessions[day]);
+    }
+
+    snapshot.monthSeconds = 0;
+    snapshot.monthDaysRead = 0;
+    for (int day = 1; day <= daysInMonth(selectedYear, selectedMonth); ++day) {
+      const int index = dayOfYear(selectedYear, selectedMonth, day);
+      if (index < 0 || index >= ReadingStatsSnapshot::DAYS_IN_YEAR) continue;
+      snapshot.monthSeconds += snapshot.days[index].seconds;
+      if (snapshot.days[index].seconds > 0) ++snapshot.monthDaysRead;
+    }
+    for (int weekday = 0; weekday < 7; ++weekday) {
+      const uint32_t key = snapshot.weekDayKeys[weekday];
+      if (key / 10000 != static_cast<uint32_t>(selectedYear)) continue;
+      const int month = static_cast<int>((key / 100) % 100);
+      const int day = static_cast<int>(key % 100);
+      const int index = dayOfYear(selectedYear, month, day);
+      if (index >= 0 && index < ReadingStatsSnapshot::DAYS_IN_YEAR) {
+        snapshot.week[weekday].seconds = snapshot.days[index].seconds;
+        snapshot.week[weekday].sessions = snapshot.days[index].sessions;
+      }
+    }
   }
 }
 
